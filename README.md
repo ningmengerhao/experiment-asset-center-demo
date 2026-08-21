@@ -1,0 +1,101 @@
+# 实验资产中心 Demo
+
+这是一个可直接打开的静态前端 demo，用于验证跨平台实验登记、运行中排查和历史追溯工作流。平台不负责真正开启或关闭线上实验，重点是把分散的实验、Seed、关系、放量、校验和导入记录组织成可连续追查的证据。
+
+当前静态入口（相对项目根目录）：
+
+```text
+dist/index.html
+```
+
+公开仓库当前可复现版本：
+
+```text
+v0.1.0
+```
+
+## 当前工作流
+
+普通用户导航按实验阶段组织：
+
+1. 实验前：实验评估、样本量与周期测算。
+2. 分流阶段：分流方案、随机数放量历史。
+3. 上线前：Pre-AA、均匀性、正交性和规则冲突检查。
+4. 运行中：告警中心、跨实验异常归因、告警规则配置和当前排查。
+5. 实验管理：实验清单、父子实验、放量历史和批量导入记录。
+
+本版新增：告警规则可在本地启停、调整阈值并生成变更记录；异常归因会扫描运行中实验，以样本重叠、放量时间、分流层、指标同步和登记关系生成可解释嫌疑分；管理员视图提供角色档案、可见范围、动作权限、负责人和权限审计。
+
+实验详情是排查入口，监控排查是闭环中枢。建立本地排查后，同一实验上下文会在监控、父子关系、放量和校验页面间连续保留，并同步到 URL hash 与 `sessionStorage`。
+
+可直接打开的 hash 示例：
+
+```text
+#evaluate
+#seed
+#check
+#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview
+#lineage?experiment=EXP-240611-017&range=14d&focus=relationship
+#rollout?experiment=EXP-240611-017&range=14d&focus=rollout
+```
+
+浏览器前进/后退会恢复页面、实验、告警、时间范围和证据焦点。非法 hash 会回到 `#evaluate`。
+
+## 构建方式
+
+安装依赖后运行：
+
+```bash
+npm install
+npm run build
+```
+
+`npm run build` 先执行 TypeScript 构建，再由 `scripts/build-static.mjs` 使用生产模式把 React、样式和依赖打成一个自包含的 `dist/index.html`。文件内包含源码指纹，不依赖外部 JS/CSS，可通过 `file://` 直接打开。
+
+需要传统 Vite 目录产物时使用：
+
+```bash
+npm run build:web
+```
+
+该命令输出到 `build/`，不会覆盖直接打开的 `dist/index.html`。
+
+## 验证
+
+完整门禁：
+
+```bash
+npm run verify:all
+```
+
+它覆盖 TypeScript、调查/抽屉纯逻辑、UI 结构、静态产物一致性和系统 Edge/CDP 真实交互回归。浏览器回归验证 1366x768、585x1024、390x844 三档视口、URL 历史、抽屉焦点、页面正文契约、表格局部滚动和 console error。
+
+重新生成五张关键视图：
+
+```bash
+npm run verify:browser -- --screenshots
+```
+
+输出：
+
+```text
+dist/ui-check-investigation-monitor.png
+dist/ui-check-investigation-lineage.png
+dist/ui-check-investigation-rollout.png
+dist/ui-check-investigation-detail.png
+dist/ui-check-investigation-mobile.png
+```
+
+静态文件 inline script 语法检查：
+
+```bash
+node -e "const fs=require('fs'); const s=fs.readFileSync('dist/index.html','utf8'); [...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].forEach((m)=>new Function(m[1])); console.log('inline script syntax ok')"
+```
+
+## 版本约束
+
+- `src/App.tsx`、`src/styles.css` 是产品源代码，`dist/index.html` 是生成产物，不手工维护两套业务逻辑。
+- 本机继续保留 `history/YYYY-MM-DD-before-*` 和 `history/YYYY-MM-DD-after-*` 快照；公开仓库使用 Git 分支、提交和 tag 管理可复现版本。
+- 普通用户主导航不暴露数据治理、权限配置和管理员审核。
+- 可见主操作必须有跳转、状态变化、抽屉或 toast 反馈；未实现能力不得伪装成可用按钮。
+- 当前仍是本地静态演示，排查状态不写入生产系统，也不包含真实后端持久化。
