@@ -1,0 +1,16 @@
+node_modules/
+build/
+.superpowers/
+archive/
+history/
+docs/2026-08-05-restart-context.md
+
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log

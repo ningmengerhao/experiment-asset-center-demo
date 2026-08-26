@@ -1,0 +1,31 @@
+{
+  "name": "experiment-platform-demo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc -b && node scripts/build-static.mjs",
+    "build:web": "tsc -b && vite build --outDir build --emptyOutDir",
+    "build:static": "node scripts/build-static.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "verify:logic": "node scripts/test-drawer.mjs && node scripts/test-investigation.mjs && node scripts/test-monitoring.mjs && tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext --skipLibCheck scripts/test-investigation-types.mts",
+    "verify:static": "node scripts/build-static.mjs --check && node scripts/verify-investigation.mjs",
+    "verify:browser": "node scripts/verify-browser.mjs",
+    "verify:all": "tsc -b && npm run verify:logic && npm run verify:ui && npm run verify:static && npm run verify:browser"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "esbuild": "^0.25.12"
+  }
+}
