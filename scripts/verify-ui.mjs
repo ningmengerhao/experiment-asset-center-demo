@@ -7,6 +7,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const app = read("src/App.tsx");
 const css = read("src/styles.css");
+const investigation = read("src/investigation.mjs");
 const dist = read("dist/index.html");
 const builder = read("scripts/build-static.mjs");
 const browserVerifier = read("scripts/verify-browser.mjs");
@@ -37,8 +38,8 @@ check("artifact is generated from React production source", includesAll(builder,
 check("artifact does not contain the React development runtime", !dist.includes("react.development.js") && !dist.includes("Download the React DevTools"));
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
-check("ordinary-user navigation is stage organized", includesAll(app, ["实验前", "分流阶段", "上线前", "运行中", "实验管理"]));
-check("experiment management places lineage directly after ledger", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"/.test(app));
+check("ordinary-user navigation keeps a dedicated home before stage groups", /title:\s*"首页"[\s\S]*key:\s*"list"[\s\S]*label:\s*"首页"[\s\S]*title:\s*"实验前"/.test(app));
+check("experiment management starts with lineage after moving the ledger home", /title:\s*"实验管理"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"myImports"/.test(app));
 check("feasibility assessment covers operational dimensions and alternatives", includesAll(evaluationPage, ["流量覆盖", "基线稳定", "实验污染", "护栏完整", "业务价值", "替代方案"]));
 check("seed page owns traffic structure instead of statistical validation", includesAll(seedPage, ["分流方案", "分流层", "样本口径", "历史复用风险", "带入上线前检查"])
   && !includesAll(seedPage, ["<th>Pre-AA</th>", "<th>均匀性</th>", "<th>正交性</th>"]));
@@ -57,6 +58,10 @@ check("left navigation exposes current-page semantics", includesAll(app, ['aria-
 check("stage controls are semantic buttons", includesAll(app, ["stageTargets.map", "stage-step", 'aria-current={stageByTab[activeTab] === step.tab ? "step" : undefined}']));
 check("help trigger is accessible and stable", includesAll(app, ['id="headerHelpButton"', 'aria-label="帮助文档"']));
 check("drawers expose dialog semantics", includesAll(app, ['role="dialog"', 'aria-modal="true"', "closeTopmostDrawer", "trapDrawerFocus"]));
+check("ledger exposes four default filters and a draft-backed filter dialog", includesAll(app, ["data-ledger-default-filters", "data-open-filter-dialog", "filterDialogOpen", "filterDraft", "applyFilterDraft", "data-filter-dialog"]));
+check("ledger filter dialog uses a responsive two-column layout", includesAll(css, [".filter-dialog-grid", "grid-template-columns: repeat(2", ".filter-dialog-mask"]));
+check("new experiment control is a dark navigation action", includesAll(app, ["data-home-create-experiment", 'navigateToTab("evaluate")']) && includesAll(css, [".create-experiment-button", "background: #1d2129"]));
+check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
 check("investigation browser selectors exist", includesAll(app, ["data-start-investigation", "data-investigation-status", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
   "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"", "data-page-id=\"seedHistory\"",

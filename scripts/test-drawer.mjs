@@ -16,6 +16,10 @@ const duplicateTop = pushDrawer(["detail", "help"], "detail");
 assert.deepEqual(duplicateTop, ["help", "detail"], "reopening a drawer moves it to the top without duplication");
 assert.equal(new Set(duplicateTop).size, duplicateTop.length);
 
+const detailThenFilters = pushDrawer(detailOnly, "filters");
+assert.deepEqual(detailThenFilters, ["detail", "filters"], "opening filters must layer over the active page or drawer");
+assert.deepEqual(popDrawer(detailThenFilters), { stack: ["detail"], closed: "filters", active: "detail" }, "closing filters must restore the prior drawer");
+
 const empty = popDrawer([]);
 assert.deepEqual(empty, { stack: [], closed: null, active: null }, "empty stack pop must be safe");
 

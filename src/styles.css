@@ -707,6 +707,59 @@ textarea:focus-visible,
   font-size: 13px;
 }
 
+.ledger-heading-actions,
+.ledger-filter-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.create-experiment-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid #1d2129;
+  color: #fff;
+  background: #1d2129;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.create-experiment-button:hover {
+  border-color: #000;
+  background: #000;
+}
+
+.ledger-filter-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-top: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.ledger-filter-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.ledger-filter-grid .field {
+  min-width: 0;
+}
+
+.ledger-filter-actions {
+  flex: 0 0 auto;
+  padding-bottom: 0;
+}
+
 .filter-grid {
   display: grid;
   grid-template-columns:
@@ -1822,6 +1875,12 @@ textarea:focus {
   display: flex;
 }
 
+.filter-dialog-mask {
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
 .drawer {
   width: min(520px, 100vw);
   height: 100%;
@@ -1837,6 +1896,21 @@ textarea:focus {
 
 .detail-drawer {
   width: min(680px, 100vw);
+}
+
+.filter-dialog {
+  width: min(640px, 100%);
+  height: auto;
+  max-height: min(720px, 100%);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 44px rgba(29, 33, 41, 0.18);
+}
+
+.filter-dialog-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 18px;
+  padding: 22px 0 2px;
 }
 
 .drawer-header {
@@ -2621,6 +2695,15 @@ textarea:focus {
     grid-template-columns: repeat(2, minmax(240px, 1fr));
   }
 
+  .ledger-filter-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ledger-filter-actions {
+    justify-content: flex-end;
+  }
+
   .slim-filter {
     grid-template-columns: repeat(2, minmax(220px, 1fr));
   }
@@ -2662,6 +2745,10 @@ textarea:focus {
   .filter-grid,
   .slim-filter {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ledger-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .field {
@@ -2782,6 +2869,7 @@ textarea:focus {
   }
 
   .filter-grid,
+  .ledger-filter-grid,
   .metric-grid,
   .result-grid,
   .module-grid,
@@ -2815,6 +2903,29 @@ textarea:focus {
   .toolbar-left,
   .header-actions {
     flex-wrap: wrap;
+  }
+
+  .ledger-heading-actions,
+  .ledger-filter-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filter-dialog-mask {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .filter-dialog {
+    width: 100%;
+    max-height: min(84vh, 760px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+  }
+
+  .filter-dialog-grid {
+    grid-template-columns: 1fr;
   }
 
   .target-summary,

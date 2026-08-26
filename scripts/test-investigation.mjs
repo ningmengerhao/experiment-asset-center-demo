@@ -51,11 +51,11 @@ const invalidLocationCases = [
   ["invalid focus", "#investigate?experiment=EXP-240611-017&focus=script"],
 ];
 for (const [name, location] of invalidLocationCases) {
-  assert.deepEqual(parseInvestigationLocation(location), { tab: "evaluate", context: null }, name);
+  assert.deepEqual(parseInvestigationLocation(location), { tab: "list", context: null }, name);
 }
 
 assert.equal(parseInvestigationLocation("#governance").tab, "governance");
-assert.equal(buildInvestigationHash("not-a-tab", context), "#evaluate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
+assert.equal(buildInvestigationHash("not-a-tab", context), "#list?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
 
 const buildCases = [
   ["valid context", context, "#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout"],
@@ -163,17 +163,17 @@ const recoveryCases = [
   {
     name: "invalid hash preserves a valid stored context",
     hash: "#invalid-route?experiment=EXP-240615-022",
-    expected: ["evaluate", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", true, false],
+    expected: ["list", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", true, false],
   },
   {
     name: "empty-tab malformed hash preserves a valid stored context",
     hash: "#?bad",
-    expected: ["evaluate", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", true, false],
+    expected: ["list", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", true, false],
   },
   {
-    name: "bare hash is normal evaluation recovery",
+    name: "bare hash is normal home recovery",
     hash: "",
-    expected: ["evaluate", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", false, false],
+    expected: ["list", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", false, false],
   },
   {
     name: "no contextual URL restores stored context without persistence",

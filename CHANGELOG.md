@@ -2,6 +2,16 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-26 - Home Ledger and Filter Dialog (v0.2.0)
+
+Changed:
+
+- Initialized the local Git repository, regenerated the stale static artifact, and tagged the reproducible source baseline as `v0.1.0`.
+- Moved the experiment ledger to the first ordinary-user navigation entry as `首页`; opening without a hash and invalid routes now resolve to `#list` while preserving `#list` compatibility.
+- Moved `新建实验` to the ledger header as a dark primary action that opens the existing experiment-evaluation workbench.
+- Reduced the default ledger filter row to experiment ID/name, business line, status, and owner; added a modal `更多筛选` dialog for all five existing conditions with explicit cancel/apply behavior.
+- Added regression coverage for the home route, ledger navigation action, default-filter count, filter-draft cancellation, and explicit application.
+
 ## 2026-08-21 - Alert Rules, Cross-Experiment Attribution and Permissions
 
 Captured in:

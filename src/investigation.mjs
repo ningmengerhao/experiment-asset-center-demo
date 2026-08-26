@@ -32,7 +32,7 @@ function isSafeIdentifier(value) {
 }
 
 function fallbackLocation() {
-  return { tab: "evaluate", context: null };
+  return { tab: "list", context: null };
 }
 
 function decodeQuery(query) {
@@ -183,7 +183,7 @@ export function recoverInvestigationLocation(hash, storage) {
   const invalidHash = isInvalidInvestigationHash(hash, parsed);
 
   if (invalidHash) {
-    return { tab: "evaluate", context: stored, invalidHash: true, shouldPersist: false };
+    return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };
   }
 
   if (!parsed.context) {
@@ -207,7 +207,7 @@ export function recoverInvestigationLocation(hash, storage) {
 }
 
 export function buildInvestigationHash(tab, context = null) {
-  const safeTab = tabs.has(tab) ? tab : "evaluate";
+  const safeTab = tabs.has(tab) ? tab : "list";
   if (!context || !isSafeIdentifier(context.experimentId)) return `#${safeTab}`;
 
   const params = new URLSearchParams({ experiment: context.experimentId });

@@ -312,6 +312,11 @@ async function run() {
       await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", buttons: 0, clickCount: 1 });
     };
 
+    const typeText = async (selector, text) => {
+      await physicalClick(selector);
+      await cdp.send("Input.insertText", { text });
+    };
+
     const setViewport = async ({ width, height }) => {
       await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     };
@@ -438,6 +443,11 @@ async function run() {
     };
 
     await setViewport(viewports[0]);
+    await openUrl(distUrl);
+    await expectPageContract("list", "实验清单", "experiment-ledger");
+    assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "首页", "List route must render as the home navigation item.");
+    pass("empty URL opens the experiment ledger home");
+
     await openUrl(`${distUrl}#evaluate`);
     await seedInvestigationContext();
     await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d`);
@@ -491,9 +501,31 @@ async function run() {
 
     await evaluate("sessionStorage.clear()");
     await openUrl(`${distUrl}#invalid-route`);
-    await waitFor("invalid route normalization", () => evaluate(`location.hash === "#evaluate"`));
+    await waitFor("invalid route normalization", () => evaluate(`location.hash === "#list"`));
+    await expectPageContract("list", "实验清单", "experiment-ledger");
+    pass("invalid route normalizes to #list");
+
+    await physicalClick("[data-home-create-experiment]");
+    await waitFor("new experiment opens evaluation", () => evaluate(`location.hash === "#evaluate"`));
     await expectPageContract("evaluate", "实验评估", "sample-planning");
-    pass("invalid route normalizes to #evaluate");
+    pass("new experiment routes to the existing evaluation workbench");
+
+    await openUrl(`${distUrl}#list`);
+    assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] [data-filter-draft]").length`), 0, "Source filtering must not appear in the default filter row.");
+    await physicalClick("[data-open-filter-dialog]");
+    await waitFor("filter dialog", () => evaluate(`document.querySelector("[data-filter-dialog]")?.getAttribute("aria-modal") === "true"`));
+    await typeText('[data-filter-draft="sourcePlatformKeyword"]', "手动补录");
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await waitFor("filter dialog cancels with Escape", () => evaluate(`!document.querySelector("[data-filter-dialog]")`));
+    assert.equal(await evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length`), 5, "Cancelling filter draft must preserve the unfiltered ledger.");
+    await physicalClick("[data-open-filter-dialog]");
+    await typeText('[data-filter-draft="sourcePlatformKeyword"]', "手动补录");
+    await physicalClick("[data-filter-dialog] .primary-button");
+    await waitFor("filter dialog applies", () => evaluate(`!document.querySelector("[data-filter-dialog]") && document.querySelector("[data-open-filter-dialog]")?.textContent.includes("1")`));
+    assert.equal(await evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length`), 1, "Applied source filter must narrow the ledger.");
+    pass("more filters supports discard and explicit apply");
 
     for (const [targetTab, targetBreadcrumb] of expectedStageTargets) {
       await openUrl(`${distUrl}#evaluate`);

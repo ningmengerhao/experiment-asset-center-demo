@@ -26,6 +26,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Shuffle,
   Upload,
   UserRound,
@@ -79,6 +80,13 @@ type AlertSeverity = "info" | "warning" | "critical";
 type MonitorView = "alerts" | "attribution" | "rules";
 type CheckScopeMode = "全部运行实验" | "同业务域" | "同分流层" | "手动指定";
 type PermissionRoleId = "admin" | "businessOwner" | "experimentOwner" | "analyst" | "viewer";
+type LedgerFilters = {
+  keyword: string;
+  businessLine: string;
+  sourcePlatformKeyword: string;
+  status: string;
+  owner: string;
+};
 type InvestigationStartOptions = {
   alertId?: string;
   focus?: EvidenceFocus;
@@ -482,6 +490,13 @@ const navGroups: Array<{
   items: Array<{ key: Tab; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }>;
 }> = [
   {
+    title: "首页",
+    role: "all",
+    items: [
+      { key: "list", label: "首页", icon: ClipboardList },
+    ],
+  },
+  {
     title: "实验前",
     role: "all",
     items: [
@@ -514,7 +529,6 @@ const navGroups: Array<{
     title: "实验管理",
     role: "all",
     items: [
-      { key: "list", label: "实验清单", icon: ClipboardList },
       { key: "lineage", label: "父子实验", icon: Network },
       { key: "rollout", label: "放量历史", icon: Clock3 },
       { key: "myImports", label: "批量导入记录", icon: Upload },
@@ -533,6 +547,13 @@ const navGroups: Array<{
 
 const allTabs = navGroups.flatMap((group) => group.items.map((item) => item.key));
 const adminTabs = new Set<Tab>(["importReview", "governance", "permission"]);
+const defaultLedgerFilters: LedgerFilters = {
+  keyword: "",
+  businessLine: "all",
+  sourcePlatformKeyword: "",
+  status: "all",
+  owner: "all",
+};
 const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "evaluate", label: "实验前评估" },
   { tab: "seed", label: "分流方案" },
@@ -1047,7 +1068,7 @@ function App() {
   const [roleView, setRoleView] = useState<RoleView>("user");
   const [activeTab, setActiveTab] = useState<Tab>(() => {
     const recovered = recoverInvestigationLocation(typeof window === "undefined" ? "" : window.location.hash);
-    return !adminTabs.has(recovered.tab as Tab) ? recovered.tab as Tab : "evaluate";
+    return !adminTabs.has(recovered.tab as Tab) ? recovered.tab as Tab : "list";
   });
   const [investigationContext, setInvestigationContext] = useState<InvestigationContext | null>(() => {
     const recovered = recoverInvestigationLocation(typeof window === "undefined" ? "" : window.location.hash);
@@ -1062,13 +1083,9 @@ function App() {
   const [globalSearchKeyword, setGlobalSearchKeyword] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const [filters, setFilters] = useState({
-    keyword: "",
-    businessLine: "all",
-    sourcePlatformKeyword: "",
-    status: "all",
-    owner: "all",
-  });
+  const [filters, setFilters] = useState<LedgerFilters>(defaultLedgerFilters);
+  const [filterDraft, setFilterDraft] = useState<LedgerFilters>(defaultLedgerFilters);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [seedInputMode, setSeedInputMode] = useState<SeedInputMode>("manual");
   const [seedBase, setSeedBase] = useState("onboarding_core");
   const [seedManualList, setSeedManualList] = useState("member-copy-v2\nsearch_empty_safe\npay_coupon_holdout");
@@ -1161,6 +1178,9 @@ function App() {
     .filter((group) => group.role === "all" || group.role === roleView)
     .map((group) => ({ ...group, items: group.items.filter((item) => roleView === "admin" || !item.adminOnly) }));
   const activeLabel = visibleGroups.flatMap((group) => group.items).find((item) => item.key === activeTab)?.label ?? "实验清单";
+  const activeGroup = visibleGroups.find((group) => group.items.some((item) => item.key === activeTab));
+  const breadcrumbGroup = activeTab === "list" ? "首页" : activeGroup?.title ?? "工作台";
+  const breadcrumbLabel = activeTab === "list" ? "实验清单" : activeLabel;
   const searchResults = useMemo(() => {
     const keyword = globalSearchKeyword.trim().toLowerCase();
     const experimentResults = experiments
@@ -1239,6 +1259,27 @@ function App() {
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
+  function updateFilterDraft(key: keyof LedgerFilters, value: string) {
+    setFilterDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function openFilterDialog() {
+    setFilterDraft({ ...filters });
+    openDrawer("filters");
+  }
+
+  function resetLedgerFilters() {
+    setFilters({ ...defaultLedgerFilters });
+    setFilterDraft({ ...defaultLedgerFilters });
+    showToast("已重置筛选条件");
+  }
+
+  function applyFilterDraft() {
+    setFilters({ ...filterDraft });
+    closeTopmostDrawer();
+    showToast("已应用全部筛选条件");
+  }
+
   function showToast(message: string) {
     setToast(message);
     if (toastTimerRef.current) {
@@ -1254,6 +1295,7 @@ function App() {
     if (drawer === "detail" && experiment) setSelected(experiment);
     if (drawer === "help") setHelpDrawer(true);
     if (drawer === "import") setBulkImportOpen(true);
+    if (drawer === "filters") setFilterDialogOpen(true);
     setDrawerStack((current) => pushDrawer(current, drawer));
   }
 
@@ -1267,6 +1309,7 @@ function App() {
     if (result.closed === "detail") setSelected(null);
     if (result.closed === "help") setHelpDrawer(false);
     if (result.closed === "import") setBulkImportOpen(false);
+    if (result.closed === "filters") setFilterDialogOpen(false);
     setDrawerStack(result.stack);
   }
 
@@ -1306,7 +1349,7 @@ function App() {
   }
 
   function navigateToTab(nextTab: Tab, options: { replace?: boolean; context?: InvestigationContext | null } = {}) {
-    const safeTab = adminTabs.has(nextTab) && roleView !== "admin" ? "evaluate" : nextTab;
+    const safeTab = adminTabs.has(nextTab) && roleView !== "admin" ? "list" : nextTab;
     const nextContext = options.context === undefined ? investigationContext : options.context;
     syncContextPageFocus(safeTab, nextContext);
     setActiveTab(safeTab);
@@ -1474,11 +1517,11 @@ function App() {
       if (recovered.invalidHash) {
         setInvestigationContext(recoveredContext);
         setEvidenceTimeline(buildEvidenceTimeline(recoveredContext));
-        navigateToTab("evaluate", { replace: true, context: recoveredContext });
+        navigateToTab("list", { replace: true, context: recoveredContext });
         return;
       }
       if (adminTabs.has(recovered.tab as Tab) && roleView !== "admin") {
-        navigateToTab("evaluate", { replace: true, context: recoveredContext });
+        navigateToTab("list", { replace: true, context: recoveredContext });
         return;
       }
       syncContextPageFocus(recovered.tab as Tab, recoveredContext);
@@ -1502,7 +1545,7 @@ function App() {
   function switchRole(nextRole: RoleView) {
     setRoleView(nextRole);
     if (nextRole === "user" && adminTabs.has(activeTab)) {
-      navigateToTab("evaluate", { replace: true });
+      navigateToTab("list", { replace: true });
     }
     showToast(nextRole === "admin" ? "已切换为管理员视图" : "已切换为普通用户视图");
   }
@@ -1658,9 +1701,9 @@ function App() {
 
         <main ref={mainRef} className="main" tabIndex={-1}>
           <div className="breadcrumb-bar" data-breadcrumb-page={activeTab}>
-            <span>{roleView === "admin" && ["importReview", "governance", "permission"].includes(activeTab) ? "管理后台" : visibleGroups.find((group) => group.items.some((item) => item.key === activeTab))?.title ?? "工作台"}</span>
+            <span>{roleView === "admin" && ["importReview", "governance", "permission"].includes(activeTab) ? "管理后台" : breadcrumbGroup}</span>
             <span>/</span>
-            <strong>{activeLabel}</strong>
+            <strong>{breadcrumbLabel}</strong>
           </div>
           {investigationContext?.caseId ? (
             <section
@@ -1964,6 +2007,67 @@ function App() {
         </div>
       ) : null}
 
+      {filterDialogOpen && activeDrawer === "filters" ? (
+        <div className="drawer-mask filter-dialog-mask show" data-filter-dialog-mask onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer filter-dialog" data-filter-dialog role="dialog" aria-modal="true" aria-labelledby="filter-dialog-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div>
+                <span>实验清单</span>
+                <h2 id="filter-dialog-title">筛选项</h2>
+              </div>
+              <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭筛选项" onClick={closeTopmostDrawer}>
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="filter-dialog-grid">
+              <label className="field vertical">
+                <span>实验 ID / 名称</span>
+                <input data-filter-draft="keyword" value={filterDraft.keyword} onChange={(event) => updateFilterDraft("keyword", event.target.value)} placeholder="请输入实验 ID 或实验名称" />
+              </label>
+              <label className="field vertical">
+                <span>业务线</span>
+                <select data-filter-draft="businessLine" value={filterDraft.businessLine} onChange={(event) => updateFilterDraft("businessLine", event.target.value)}>
+                  <option value="all">全部业务线</option>
+                  <option>增长</option>
+                  <option>会员</option>
+                  <option>推荐</option>
+                  <option>交易</option>
+                  <option>搜索</option>
+                </select>
+              </label>
+              <label className="field vertical">
+                <span>来源关键词</span>
+                <input data-filter-draft="sourcePlatformKeyword" value={filterDraft.sourcePlatformKeyword} onChange={(event) => updateFilterDraft("sourcePlatformKeyword", event.target.value)} placeholder="平台名 / 接入方式 / 业务关键词" list="source-platform-options" />
+              </label>
+              <label className="field vertical">
+                <span>状态</span>
+                <select data-filter-draft="status" value={filterDraft.status} onChange={(event) => updateFilterDraft("status", event.target.value)}>
+                  <option value="all">全部状态</option>
+                  <option value="running">运行中</option>
+                  <option value="paused">已暂停</option>
+                  <option value="ended">已结束</option>
+                </select>
+              </label>
+              <label className="field vertical">
+                <span>负责人</span>
+                <select data-filter-draft="owner" value={filterDraft.owner} onChange={(event) => updateFilterDraft("owner", event.target.value)}>
+                  <option value="all">全部负责人</option>
+                  <option>赵晨</option>
+                  <option>陈露</option>
+                  <option>周一帆</option>
+                  <option>吴雅</option>
+                  <option>刘昕</option>
+                </select>
+              </label>
+            </div>
+            <div className="drawer-actions">
+              <button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button>
+              <button className="primary-button" type="button" onClick={applyFilterDraft}>确定</button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
       {bulkImportOpen && activeDrawer === "import" ? (
         <div className="drawer-mask show" onClick={closeTopmostDrawer}>
           <aside ref={drawerRef} className="drawer import-drawer" role="dialog" aria-modal="true" aria-labelledby="import-drawer-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
@@ -2040,15 +2144,21 @@ function App() {
             <h1>实验清单</h1>
             <p>统一查看跨平台实验、父子关系、当前放量、校验状态和排查入口。</p>
           </div>
-          <span className="quiet-badge">数据更新时间：2026-07-03 10:30</span>
+          <div className="ledger-heading-actions">
+            <span className="quiet-badge">数据更新时间：2026-07-03 10:30</span>
+            <button className="create-experiment-button" data-home-create-experiment type="button" onClick={() => { navigateToTab("evaluate"); showToast("已进入实验评估，可开始准备新实验"); }}>
+              <Plus size={16} /> 新建实验
+            </button>
+          </div>
         </div>
 
-        <div className="filter-grid">
-          <label className="field">
+        <div className="ledger-filter-bar">
+          <div className="ledger-filter-grid" data-ledger-default-filters>
+          <label className="field vertical">
             <span>实验 ID / 名称</span>
             <input value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} placeholder="请输入实验 ID 或实验名称" />
           </label>
-          <label className="field">
+          <label className="field vertical">
             <span>业务线</span>
             <select value={filters.businessLine} onChange={(event) => updateFilter("businessLine", event.target.value)}>
               <option value="all">全部业务线</option>
@@ -2059,21 +2169,7 @@ function App() {
               <option>搜索</option>
             </select>
           </label>
-          <label className="field platform-field compact-platform-field">
-            <span>来源关键词</span>
-            <input
-              value={filters.sourcePlatformKeyword}
-              onChange={(event) => updateFilter("sourcePlatformKeyword", event.target.value)}
-              placeholder="平台名 / 接入方式 / 业务关键词"
-              list="source-platform-options"
-            />
-            <datalist id="source-platform-options">
-              {sourcePlatformTips.map((tip) => (
-                <option key={tip} value={tip} />
-              ))}
-            </datalist>
-          </label>
-          <label className="field">
+          <label className="field vertical">
             <span>状态</span>
             <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
               <option value="all">全部状态</option>
@@ -2082,7 +2178,7 @@ function App() {
               <option value="ended">已结束</option>
             </select>
           </label>
-          <label className="field">
+          <label className="field vertical">
             <span>负责人</span>
             <select value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)}>
               <option value="all">全部负责人</option>
@@ -2093,28 +2189,28 @@ function App() {
               <option>刘昕</option>
             </select>
           </label>
-          <div className="compact-actions">
+          </div>
+          <div className="ledger-filter-actions">
+            <button className="ghost-button" data-open-filter-dialog type="button" onClick={openFilterDialog} aria-haspopup="dialog">
+              <SlidersHorizontal size={16} /> 更多筛选{filters.sourcePlatformKeyword ? " · 1" : ""}
+            </button>
             <button className="primary-button" type="button" onClick={() => showToast(`已刷新实验清单，共 ${filteredExperiments.length} 条`)}>
               <Search size={16} /> 查询
             </button>
-            <button
-              className="ghost-button"
-              type="button"
-              onClick={() => {
-                setFilters({ keyword: "", businessLine: "all", sourcePlatformKeyword: "", status: "all", owner: "all" });
-                showToast("已重置筛选条件");
-              }}
-            >
+            <button className="ghost-button" type="button" onClick={resetLedgerFilters}>
               <RefreshCcw size={16} /> 重置
             </button>
           </div>
         </div>
 
+        <datalist id="source-platform-options">
+          {sourcePlatformTips.map((tip) => (
+            <option key={tip} value={tip} />
+          ))}
+        </datalist>
+
         <div className="toolbar">
           <div className="toolbar-left">
-            <button className="primary-button" type="button" disabled title="静态 demo 暂不开放新建表单">
-              <Plus size={16} /> 新建实验
-            </button>
             <button className="ghost-button" type="button" onClick={() => openDrawer("import")}>
               <Upload size={16} /> 提交导入
             </button>

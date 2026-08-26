@@ -11,15 +11,16 @@ import {
 } from "../src/investigation.mjs";
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "../src/drawer.mjs";
 
-const rawApp = fs.readFileSync("src/App.tsx", "utf8");
+const readNormalized = (file) => fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n");
+const rawApp = readNormalized("src/App.tsx");
 const app = rawApp
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\/\/[^\n]*/g, "");
-const rawCss = fs.readFileSync("src/styles.css", "utf8");
+const rawCss = readNormalized("src/styles.css");
 const css = rawCss
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\/\/[^\n]*/g, "");
-const investigation = fs.readFileSync("src/investigation.mjs", "utf8");
+const investigation = readNormalized("src/investigation.mjs");
 const dist = fs.readFileSync("dist/index.html", "utf8");
 const packageManifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const staticBuilder = fs.readFileSync("scripts/build-static.mjs", "utf8")
@@ -71,14 +72,14 @@ assert.equal(canonicalLocation.context?.timeRange, storedContext.timeRange);
 // verifier-side model of URL/storage precedence.
 saveInvestigationContext(storedContext, storage);
 const invalidRecovery = recoverInvestigationLocation("#investigate?experiment=EXP%3Cscript%3E", storage);
-assert.equal(invalidRecovery.tab, "evaluate");
+assert.equal(invalidRecovery.tab, "list");
 assert.equal(invalidRecovery.invalidHash, true);
 assert.equal(invalidRecovery.shouldPersist, false);
 assert.equal(invalidRecovery.context?.caseId, storedContext.caseId);
 assert.equal(loadInvestigationContext(storage)?.caseId, storedContext.caseId);
 assert.match(
   investigation,
-  /if \(invalidHash\)\s*\{\s*return \{ tab: "evaluate", context: stored, invalidHash: true, shouldPersist: false \};/,
+  /if \(invalidHash\)\s*\{\s*return \{ tab: "list", context: stored, invalidHash: true, shouldPersist: false \};/,
   "Recovery: invalid hash branch must retain validated storage without persistence",
 );
 
