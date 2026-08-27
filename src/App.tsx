@@ -43,12 +43,14 @@ import {
 } from "./investigation.mjs";
 import type { EvidenceEvent, EvidenceFocus, InvestigationContext, InvestigationStatus } from "./investigation.mjs";
 import {
+  calculateSplitSamplePlan,
   clearCreateDraft,
   createDefaultDraft,
   createHash as createExperimentHash,
   loadCreateDraft,
   loadCreatedRecords,
   readCreateStep,
+  rankCandidateResults,
   saveCreateDraft,
   saveCreatedRecords,
   validateCreateStep,
@@ -100,7 +102,7 @@ type LedgerFilters = {
   status: string;
   owner: string;
 };
-type CreateSampleField = keyof CreateExperimentDraft["sample"];
+type CreateSampleField = Exclude<keyof CreateExperimentDraft["sample"], "splitGroups">;
 type InvestigationStartOptions = {
   alertId?: string;
   focus?: EvidenceFocus;
@@ -1349,11 +1351,64 @@ function App() {
   }
 
   function updateCreateBasic(key: keyof CreateExperimentDraft["basic"], value: string) {
-    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, [key]: value }, seed: key === "businessLine" ? { ...current.seed, domain: value } : current.seed }));
+    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, [key]: value }, seed: key === "domain" ? { ...current.seed, selectedSeed: "" } : current.seed }));
   }
 
   function updateCreateSample(key: CreateSampleField, value: number) {
     setCreateDraft((current) => ({ ...current, sample: { ...current.sample, [key]: value } }));
+  }
+
+  function updateCreateSplitGroup(index: number, key: "label" | "ratio", value: string) {
+    setCreateDraft((current) => ({
+      ...current,
+      sample: { ...current.sample, splitGroups: current.sample.splitGroups.map((group, groupIndex) => groupIndex === index ? { ...group, [key]: key === "ratio" ? Number(value) : value } : group) },
+      seed: { ...current.seed, selectedSeed: "" },
+    }));
+  }
+
+  function addCreateSplitGroup() {
+    setCreateDraft((current) => {
+      const index = current.sample.splitGroups.length;
+      return {
+        ...current,
+        sample: { ...current.sample, splitGroups: [...current.sample.splitGroups, { id: `group-${Date.now()}-${index}`, label: String.fromCharCode(65 + index), ratio: 0 }] },
+        seed: { ...current.seed, selectedSeed: "" },
+      };
+    });
+  }
+
+  function removeCreateSplitGroup(index: number) {
+    setCreateDraft((current) => current.sample.splitGroups.length <= 2 ? current : {
+      ...current,
+      sample: { ...current.sample, splitGroups: current.sample.splitGroups.filter((_, groupIndex) => groupIndex !== index) },
+      seed: { ...current.seed, selectedSeed: "" },
+    });
+  }
+
+  function updateCreateSeedConfig(key: "sampleUnit" | "candidateCount" | "template", value: string | number) {
+    setCreateDraft((current) => ({ ...current, seed: { ...current.seed, [key]: value, selectedSeed: "" } }));
+  }
+
+  function generateCreateSeeds() {
+    const errors = [...validateCreateStep(createDraft, "sample"), ...validateCreateStep(createDraft, "seed")];
+    if (errors.length) return showToast(`请补充：${errors[0]}`);
+    const randomPart = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    setCreateDraft((current) => ({
+      ...current,
+      seed: {
+        ...current.seed,
+        selectedSeed: "",
+        generated: {
+          key: randomPart,
+          domain: current.basic.domain,
+          sampleUnit: current.seed.sampleUnit,
+          candidateCount: current.seed.candidateCount,
+          template: current.seed.template,
+          splitGroups: current.sample.splitGroups.map((group) => ({ ...group })),
+        },
+      },
+    }));
+    showToast("已重新生成一组随机数种子");
   }
 
   function createLocalExperimentRecord(): ExperimentRecord {
@@ -1369,7 +1424,7 @@ function App() {
       owner: createDraft.basic.owner.trim(),
       relationship: "独立实验",
       parentExperiment: "-",
-      trafficLayer: `${createDraft.seed.domain}_${createDraft.seed.sampleUnit}`.toLowerCase(),
+      trafficLayer: `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase(),
       userGroup: createDraft.seed.sampleUnit,
       rollout: 0,
       status: "paused",
@@ -1380,13 +1435,13 @@ function App() {
       guardrailMetric: createDraft.basic.guardrailMetric.trim(),
       stageStatus: "实验前",
       metricConfig: { metricType: "转化率", baseline: createDraft.sample.baseline, mde: createDraft.sample.mde, confidence: createDraft.sample.confidence, power: createDraft.sample.power, dailyTraffic: createDraft.sample.dailyTraffic },
-      sampleDefinition: { domain: createDraft.seed.domain, source: "历史 A/A", window: "近 14 天", unit: createDraft.seed.sampleUnit },
-      reviewSummary: { conclusion: "已完成本地新增向导与上线前检查。", tags: ["直接新增", createDraft.seed.selectedSeed], similarExperiments: [], nextAction: "等待启动与放量配置" },
+      sampleDefinition: { domain: createDraft.basic.domain, source: "历史 A/A", window: "近 14 天", unit: createDraft.seed.sampleUnit },
+      reviewSummary: { conclusion: "已完成本地新增向导与上线前检查。", tags: ["直接新增", createDraft.seed.selectedSeed, createDraft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: "等待启动与放量配置" },
       alertStatus: "info",
       rolloutEvents: [],
       sourceQuality: "本地创建",
       importBatchId: "-",
-      checkSnapshot: { target: createDraft.seed.selectedSeed, preAA: "已通过", uniformity: "已通过", orthogonality: "已通过", sampleScope: `${createDraft.seed.domain} · ${createDraft.seed.sampleUnit}`, updatedAt: timestamp },
+      checkSnapshot: { target: createDraft.seed.selectedSeed, preAA: "已通过", uniformity: "已通过", orthogonality: "已通过", sampleScope: `${createDraft.basic.domain} · ${createDraft.seed.sampleUnit}`, updatedAt: timestamp },
       auditEvents: [{ time: timestamp, operator: createDraft.basic.owner.trim(), action: "通过新增实验向导创建" }],
     };
   }
@@ -2311,28 +2366,38 @@ function App() {
 
   function renderCreateFlow() {
     const sample = createDraft.sample;
+    const splitGroups = sample.splitGroups;
     const zAlpha = sample.confidence === 99 ? 2.576 : sample.confidence === 90 ? 1.645 : 1.96;
     const zBeta = sample.power === 95 ? 1.64 : sample.power === 90 ? 1.28 : 0.84;
     const perGroup = Math.ceil((2 * (zAlpha + zBeta) ** 2 * (sample.baseline / 100) * (1 - sample.baseline / 100)) / Math.max(0.0000001, (sample.mde / 100) ** 2));
-    const total = perGroup * sample.groups;
+    const splitPlan = calculateSplitSamplePlan(perGroup, splitGroups);
+    const total = splitPlan.total;
     const days = Math.max(1, Math.ceil(total / Math.max(1, sample.dailyTraffic)));
     const sampleResult = getSampleFeasibility(days);
-    const seedBase = createDraft.seed.template.trim() || `${createDraft.seed.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
-    const createSeedCandidates = buildSeedCandidates("random", "", "", "", seedBase, createDraft.seed.candidateCount);
+    const generated = createDraft.seed.generated;
+    const generatedSplitRatio = generated.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
+    const currentSplitRatio = splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
+    const seedBase = `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
+    const generatedBase = generated.template.trim() || `${generated.domain}_${generated.sampleUnit}`.toLowerCase();
+    const isGeneratedConfigCurrent = generated.domain === createDraft.basic.domain && generated.sampleUnit === createDraft.seed.sampleUnit && generated.candidateCount === createDraft.seed.candidateCount && generated.template === createDraft.seed.template && generatedSplitRatio === currentSplitRatio;
+    const createSeedCandidates = rankCandidateResults(buildSeedCandidates("random", "", "", "", `${generatedBase}_${generated.key}`, generated.candidateCount).map((item) => ({ ...item, quality: item.score >= 88 ? "passed" as const : item.score >= 82 ? "warning" as const : "critical" as const })));
     const selectedCandidate = createSeedCandidates.find((item) => item.seed === createDraft.seed.selectedSeed) ?? createSeedCandidates[0] ?? null;
     const scopeExperiments = experiments.filter((item) => item.status === "running").filter((item) => {
       if (createDraft.validation.scope === "全部运行实验") return true;
-      if (createDraft.validation.scope === "同业务域") return item.businessLine === createDraft.seed.domain;
+      if (createDraft.validation.scope === "同业务域") return item.businessLine === createDraft.basic.domain;
       if (createDraft.validation.scope === "同分流层") return item.trafficLayer === seedBase;
       return createDraft.validation.manualExperimentIds.includes(item.id);
     });
-    const validationBase = hashSeed(`${selectedCandidate?.seed ?? seedBase}-${createDraft.seed.domain}-${createDraft.seed.sampleUnit}-${createDraft.validation.scope}`);
+    const validationBase = hashSeed(`${selectedCandidate?.seed ?? seedBase}-${createDraft.basic.domain}-${createDraft.seed.sampleUnit}-${createDraft.validation.scope}`);
     const preAA = calculatePreAA(
       Number((sample.baseline - 0.08 + (validationBase % 16) / 100).toFixed(2)),
       Number((sample.baseline - 0.08 + ((validationBase >>> 5) % 16) / 100).toFixed(2)),
       Math.max(1000, perGroup),
     );
-    const uniformity = calculateUniformity(96000 + (validationBase % 8000), 96000 + ((validationBase >>> 7) % 8000), 50);
+    const referenceRatio = generated.splitGroups[0]?.ratio ?? 50;
+    const uniformityTotal = 192000 + (validationBase % 16000);
+    const uniformityA = Math.round(uniformityTotal * (referenceRatio / 100) + ((validationBase >>> 7) % 500) - 250);
+    const uniformity = calculateUniformity(uniformityA, uniformityTotal - uniformityA, referenceRatio);
     const orthogonality = calculateOrthogonality([
       47000 + (validationBase % 6000),
       47000 + ((validationBase >>> 6) % 6000),
@@ -2342,7 +2407,7 @@ function App() {
     const ruleConflict = selectedCandidate ? selectedCandidate.conflictRisk >= 8 || scopeExperiments.some((item) => item.trafficLayer === seedBase) : false;
     const defaultSampleFields: Array<{ key: CreateSampleField; label: string }> = [
       { key: "baseline", label: "基准指标 %" }, { key: "mde", label: "MDE 百分点" }, { key: "confidence", label: "置信水平 %" }, { key: "power", label: "统计功效 %" },
-      { key: "groups", label: "实验组数" }, { key: "dailyTraffic", label: "日可用流量" }, { key: "identityCoverage", label: "身份覆盖率 %" }, { key: "maxDays", label: "最长可接受周期" },
+      { key: "dailyTraffic", label: "日可用流量" }, { key: "identityCoverage", label: "身份覆盖率 %" }, { key: "maxDays", label: "最长可接受周期" },
     ];
     const additionalSampleFields: Array<{ key: CreateSampleField; label: string }> = [
       { key: "stableDays", label: "历史稳定天数" }, { key: "guardrailCount", label: "护栏指标数" }, { key: "businessValue", label: "预期业务价值 %" },
@@ -2377,6 +2442,7 @@ function App() {
             <div className="form-grid create-basic-grid">
               <label className="field vertical wide-field"><span>实验名称</span><input data-create-basic="name" value={createDraft.basic.name} onChange={(event) => updateCreateBasic("name", event.target.value)} /></label>
               <label className="field vertical"><span>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <label className="field vertical"><span>实验域</span><select data-create-basic="domain" value={createDraft.basic.domain} onChange={(event) => updateCreateBasic("domain", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
               <label className="field vertical"><span>负责人</span><input data-create-basic="owner" value={createDraft.basic.owner} onChange={(event) => updateCreateBasic("owner", event.target.value)} list="owner-options" /></label>
               <label className="field vertical"><span>核心指标</span><input data-create-basic="coreMetric" value={createDraft.basic.coreMetric} onChange={(event) => updateCreateBasic("coreMetric", event.target.value)} /></label>
               <label className="field vertical"><span>护栏指标</span><input data-create-basic="guardrailMetric" value={createDraft.basic.guardrailMetric} onChange={(event) => updateCreateBasic("guardrailMetric", event.target.value)} /></label>
@@ -2392,14 +2458,26 @@ function App() {
               {defaultSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />)}
               {createSampleExpanded ? additionalSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />) : null}
             </div>
+            <section className="create-split-config" aria-label="分流比例" data-create-split-config>
+              <div className="create-split-heading"><div><h3>分流比例</h3><p>比例总和必须为 100%，最小比例组决定总样本量。</p></div><span className={splitGroups.reduce((sum, group) => sum + group.ratio, 0) === 100 ? "quality-badge passed" : "quality-badge warning"}>合计 {splitGroups.reduce((sum, group) => sum + group.ratio, 0)}%</span></div>
+              <div className="create-split-groups">
+                {splitGroups.map((group, index) => <div className="create-split-group" key={group.id}>
+                  <label className="field vertical"><span>实验组</span><input data-create-split-label={index} value={group.label} onChange={(event) => updateCreateSplitGroup(index, "label", event.target.value)} /></label>
+                  <label className="field vertical"><span>比例 %</span><input data-create-split-ratio={index} type="number" min="1" max="100" step="1" value={group.ratio} onChange={(event) => updateCreateSplitGroup(index, "ratio", event.target.value)} /></label>
+                  <button className="icon-button create-split-remove" type="button" aria-label={`删除 ${group.label} 组`} title={`删除 ${group.label} 组`} disabled={splitGroups.length <= 2} onClick={() => removeCreateSplitGroup(index)}><X size={16} /></button>
+                </div>)}
+              </div>
+              <button className="ghost-button create-split-add" type="button" disabled={splitGroups.length >= 8} onClick={addCreateSplitGroup}><Plus size={16} /> 新增实验组</button>
+            </section>
             <button className="link-button create-expand-button" type="button" onClick={() => setCreateSampleExpanded((current) => !current)}>{createSampleExpanded ? "收起" : "展开"}</button>
           </Panel>
           <Panel title="可行性结论">
-            <div className="result-grid three-metrics"><Metric label="每组样本量" value={formatNumber(perGroup)} /><Metric label="总样本量" value={formatNumber(total)} /><Metric label="预计周期" value={`${days} 天`} tone={sampleResult.status === "passed" ? "success" : sampleResult.status === "warning" ? "warning" : "danger"} /></div>
+            <div className="result-grid three-metrics"><Metric label="每组所需样本量" value={formatNumber(perGroup)} /><Metric label="总样本量" value={formatNumber(total)} /><Metric label="预计周期" value={`${days} 天`} tone={sampleResult.status === "passed" ? "success" : sampleResult.status === "warning" ? "warning" : "danger"} /></div>
+            <div className="create-allocation-summary" data-create-allocation-summary>{splitPlan.groups.map((group) => <span key={group.id}>{group.label} 组 {group.ratio}%：{formatNumber(group.samples)}</span>)}</div>
             <div className={`recommendation-panel ${sampleResult.status}`}><strong>{sampleResult.label}</strong><p>{sampleResult.advice}</p></div>
           </Panel>
           <section className="create-suggestion-panel" aria-label="建议方案">
-            <div><strong>五维可行性评估</strong><span>流量覆盖 {sample.identityCoverage}% · 基线稳定 {sample.stableDays} 天 · 实验污染 {sample.groups} 组 · 护栏完整 {sample.guardrailCount} 项 · 业务价值 {sample.businessValue}%</span></div>
+            <div><strong>五维可行性评估</strong><span>流量覆盖 {sample.identityCoverage}% · 基线稳定 {sample.stableDays} 天 · 实验污染 {splitGroups.length} 组 · 护栏完整 {sample.guardrailCount} 项 · 业务价值 {sample.businessValue}%</span></div>
             <div><strong>替代方案</strong><span>扩大客群、调整 MDE、减少分组、延长周期、准实验、前后对比。</span></div>
           </section>
           {renderFooter()}
@@ -2408,23 +2486,24 @@ function App() {
         {createStep === "seed" ? <>
           <Panel title="生成配置">
             <div className="create-seed-grid">
-              <label className="field vertical"><span>样本口径</span><select value={createDraft.seed.sampleUnit} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, sampleUnit: event.target.value } }))}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
-              <label className="field vertical"><span>实验域</span><select value={createDraft.seed.domain} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, domain: event.target.value } }))}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
-              <NumberField label="候选种子数量" value={createDraft.seed.candidateCount} onChange={(value) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, candidateCount: value } }))} />
-              <label className="field vertical"><span>随机数种子模板（可选）</span><input value={createDraft.seed.template} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, template: event.target.value } }))} /></label>
-              <button className="primary-button create-seed-generate" type="button" onClick={() => { const errors = validateCreateStep(createDraft, "seed"); if (errors.length) return showToast(`请补充：${errors[0]}`); setCreateDraft((current) => ({ ...current, seed: { ...current.seed, selectedSeed: "" } })); showToast("已生成随机数种子"); }}><Shuffle size={16} /> 生成随机数种子</button>
+              <label className="field vertical"><span>样本口径</span><select data-create-seed-unit value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
+              <NumberField label="候选种子数量" value={createDraft.seed.candidateCount} onChange={(value) => updateCreateSeedConfig("candidateCount", value)} />
+              <label className="field vertical"><span>随机数种子模板（可选）</span><input data-create-seed-template value={createDraft.seed.template} onChange={(event) => updateCreateSeedConfig("template", event.target.value)} /></label>
+              <button className="primary-button create-seed-generate" data-create-seed-generate type="button" onClick={generateCreateSeeds}><Shuffle size={16} /> 生成随机数种子</button>
             </div>
+            <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span></div>
           </Panel>
           <Panel title="候选种子列表">
+            {!isGeneratedConfigCurrent ? <p className="create-seed-stale" data-create-seed-stale>生成配置已修改，请重新生成随机数种子后再带入上线前检查。</p> : null}
             <div className="table-wrap"><table className="data-table compact sticky-actions create-seed-table"><thead><tr><th>序号</th><th>候选种子</th><th>样本口径</th><th>分流比例</th><th>校验结果</th><th>操作</th></tr></thead><tbody>
-              {createSeedCandidates.map((item, index) => { const status: QualityStatus = item.score >= 88 ? "passed" : item.score >= 82 ? "warning" : "critical"; return <tr key={item.seed}><td>{index + 1}</td><td className="mono">{item.seed}</td><td>{createDraft.seed.domain} · {createDraft.seed.sampleUnit}</td><td>{index % 3 === 0 ? "A:50% B:50%" : index % 3 === 1 ? "A:70% B:30%" : "A:80% B:20%"}</td><td><span className={`quality-badge ${status}`}>{status === "passed" ? "通过" : status === "warning" ? "警告" : "不通过"}</span></td><td><button className="link-button" type="button" data-create-seed-candidate onClick={() => { const nextDraft = { ...createDraft, savedStep: "validation" as CreateStep, seed: { ...createDraft.seed, selectedSeed: item.seed } }; setCreateDraft(nextDraft); if (!saveCreateDraft(nextDraft)) return showToast("本机草稿保存失败"); navigateToCreateStep("validation"); showToast("已带入上线前检查"); }}>带入上线前检查</button></td></tr>; })}
+              {createSeedCandidates.map((item, index) => <tr key={item.seed}><td>{index + 1}</td><td className="mono" data-create-seed-value>{item.seed}</td><td>{generated.domain} · {generated.sampleUnit}</td><td>{generatedSplitRatio}</td><td><span className={`quality-badge ${item.quality}`}>{item.quality === "passed" ? "通过" : item.quality === "warning" ? "警告" : "不通过"}</span><small className="table-score">评分 {item.score}</small></td><td><button className="link-button" type="button" data-create-seed-candidate disabled={!isGeneratedConfigCurrent} onClick={() => { const nextDraft = { ...createDraft, savedStep: "validation" as CreateStep, seed: { ...createDraft.seed, selectedSeed: item.seed } }; setCreateDraft(nextDraft); if (!saveCreateDraft(nextDraft)) return showToast("本机草稿保存失败"); navigateToCreateStep("validation"); showToast("已带入上线前检查"); }}>带入上线前检查</button></td></tr>)}
             </tbody></table></div>
           </Panel>
           {renderFooter()}
         </> : null}
 
         {createStep === "validation" ? <>
-          <Panel title="校验范围"><div className="create-validation-context"><label className="field vertical"><span>校验范围</span><select value={createDraft.validation.scope} onChange={(event) => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, scope: event.target.value as CheckScopeMode } }))}>{(["全部运行实验", "同业务域", "同分流层", "手动指定"] as CheckScopeMode[]).map((scope) => <option key={scope}>{scope}</option>)}</select></label><label className="field vertical"><span>检验对象</span><input disabled value={`${createDraft.basic.name || "未命名实验"} · ${createDraft.seed.selectedSeed || "未选择种子"}`} /></label><label className="field vertical"><span>样本口径</span><input disabled value={`${createDraft.seed.domain} · 历史 A/A · 近 14 天 · ${createDraft.seed.sampleUnit}`} /></label></div>{createDraft.validation.scope === "手动指定" ? <div className="manual-scope-list">{experiments.filter((item) => item.status === "running").map((item) => <label key={item.id}><input type="checkbox" checked={createDraft.validation.manualExperimentIds.includes(item.id)} onChange={() => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, manualExperimentIds: current.validation.manualExperimentIds.includes(item.id) ? current.validation.manualExperimentIds.filter((id) => id !== item.id) : [...current.validation.manualExperimentIds, item.id] } }))} />{item.name}</label>)}</div> : <p className="hint">范围内运行实验 {scopeExperiments.length} 个</p>}</Panel>
+          <Panel title="校验范围"><div className="create-validation-context"><label className="field vertical"><span>校验范围</span><select value={createDraft.validation.scope} onChange={(event) => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, scope: event.target.value as CheckScopeMode } }))}>{(["全部运行实验", "同业务域", "同分流层", "手动指定"] as CheckScopeMode[]).map((scope) => <option key={scope}>{scope}</option>)}</select></label><label className="field vertical"><span>检验对象</span><input disabled value={`${createDraft.basic.name || "未命名实验"} · ${createDraft.seed.selectedSeed || "未选择种子"}`} /></label><label className="field vertical"><span>样本口径</span><input disabled value={`${createDraft.basic.domain} · ${currentSplitRatio} · 历史 A/A · 近 14 天 · ${createDraft.seed.sampleUnit}`} /></label></div>{createDraft.validation.scope === "手动指定" ? <div className="manual-scope-list">{experiments.filter((item) => item.status === "running").map((item) => <label key={item.id}><input type="checkbox" checked={createDraft.validation.manualExperimentIds.includes(item.id)} onChange={() => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, manualExperimentIds: current.validation.manualExperimentIds.includes(item.id) ? current.validation.manualExperimentIds.filter((id) => id !== item.id) : [...current.validation.manualExperimentIds, item.id] } }))} />{item.name}</label>)}</div> : <p className="hint">范围内运行实验 {scopeExperiments.length} 个</p>}</Panel>
           <Panel title="上线前检查结果"><div className="validation-list create-validation-list" data-create-validation-results>
             <div className={`validation-item ${preAA.passed ? "passed" : "critical"}`}><span>Pre-AA</span><strong>{preAA.passed ? "通过" : "不通过"}</strong><p>历史 A/A {preAA.passed ? "未见显著差异" : "存在显著差异"}</p><em>p = {preAA.pValue.toFixed(4)}</em></div>
             <div className={`validation-item ${uniformity.passed ? "passed" : "critical"}`}><span>均匀性</span><strong>{uniformity.passed ? "通过" : "不通过"}</strong><p>分桶偏差 {uniformity.deviation.toFixed(2)}%</p><em>p = {uniformity.pValue.toFixed(4)}</em></div>

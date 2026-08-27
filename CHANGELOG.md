@@ -2,6 +2,16 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Split Configuration in Create Wizard (v0.3.1)
+
+Changed:
+
+- Moved the independently selected experiment domain into the first wizard step and made later split and validation pages read it as a fixed value.
+- Added editable multi-group split proportions to sample evaluation, requiring positive integer percentages totaling 100%; total sample size now protects the smallest traffic group.
+- Made generated candidates a saved configuration snapshot: changing a seed input retains the old list but requires an explicit regeneration before it can be selected.
+- Regeneration creates a new local random group, clears the selection, and sorts candidate results by validation quality then score.
+- Added migration for `v0.3.0` browser drafts, pure logic coverage for split calculations and sorting, and browser regression coverage for the complete updated path.
+
 ## 2026-08-27 - Create Experiment Wizard (v0.3.0)
 
 Added:

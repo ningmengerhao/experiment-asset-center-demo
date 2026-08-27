@@ -317,6 +317,15 @@ async function run() {
       await cdp.send("Input.insertText", { text });
     };
 
+    const replaceText = async (selector, text) => {
+      await physicalClick(selector);
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers: 2 });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", windowsVirtualKeyCode: 65, modifiers: 2 });
+      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17 });
+      await cdp.send("Input.insertText", { text });
+    };
+
     const setViewport = async ({ width, height }) => {
       await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
     };
@@ -511,16 +520,38 @@ async function run() {
     await waitFor("direct new experiment opens the wizard", () => evaluate(`location.hash === "#create?step=basic" && Boolean(document.querySelector("[data-page-id=\"create\"]"))`));
     assert.equal(await evaluate(`document.querySelectorAll('[data-nav-id="create"]').length`), 0, "The new experiment wizard must not appear in the sidebar.");
     await typeText('[data-create-basic="name"]', "新增首购引导");
+    await physicalClick('[data-create-basic="domain"]');
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     await typeText('[data-create-basic="owner"]', "赵晨");
     await typeText('[data-create-basic="coreMetric"]', "首购转化率");
     await typeText('[data-create-basic="guardrailMetric"]', "投诉率");
     await typeText('[data-create-basic="hypothesis"]', "新版引导可以提升首次购买转化。");
     await physicalClick("[data-create-next]");
     await waitFor("basic step saves and advances", () => evaluate(`location.hash === "#create?step=sample" && JSON.parse(localStorage.getItem("experiment-asset-create-draft-v1"))?.savedStep === "sample"`));
-    await openUrl(`${distUrl}#list`);
-    await physicalClick("[data-open-create-experiment]");
-    await waitFor("saved new experiment draft restores", () => evaluate(`location.hash === "#create?step=sample"`));
-    pass("new experiment uses a hidden, saved four-step wizard");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-create-split-config] [data-create-split-ratio]").length`), 2, "Sample evaluation must start with two split groups.");
+    const totalBeforeSplitChange = await evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent`);
+    await replaceText('[data-create-split-ratio="0"]', "70");
+    await replaceText('[data-create-split-ratio="1"]', "30");
+    await waitFor("split allocation update", () => evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent.includes("A 组 70%") && document.querySelector("[data-create-allocation-summary]")?.textContent.includes("B 组 30%")`));
+    assert.notEqual(await evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent`), totalBeforeSplitChange, "Split proportions must affect the sample allocation.");
+    await physicalClick("[data-create-next]");
+    await waitFor("sample step advances to seed", () => evaluate(`location.hash === "#create?step=seed"`));
+    assert.equal(await evaluate(`document.querySelectorAll("[data-create-seed-summary] select").length`), 0, "Experiment domain and split ratio must be read-only on the seed step.");
+    assert.equal(await evaluate(`document.querySelector("[data-create-seed-summary]")?.textContent.includes("A:70% B:30%")`), true, "Seed summary must reuse the sample split ratio.");
+    await physicalClick("[data-create-seed-generate]");
+    await waitFor("first randomized seed generation", () => evaluate(`!document.querySelector("[data-create-seed-stale]") && Boolean(document.querySelector("[data-create-seed-value]"))`));
+    const firstGeneratedSeed = await evaluate(`document.querySelector("[data-create-seed-value]")?.textContent`);
+    await physicalClick("[data-create-seed-generate]");
+    await waitFor("second randomized seed generation", () => evaluate(`document.querySelector("[data-create-seed-value]")?.textContent !== ${JSON.stringify(firstGeneratedSeed)}`));
+    assert.equal(await evaluate(`(() => { const rank = { passed: 0, warning: 1, critical: 2 }; const rows = [...document.querySelectorAll(".create-seed-table tbody tr")]; return rows.every((row, index) => { if (!index) return true; const previous = rows[index - 1]; const previousQuality = [...previous.querySelector(".quality-badge").classList].find((name) => rank[name] !== undefined); const currentQuality = [...row.querySelector(".quality-badge").classList].find((name) => rank[name] !== undefined); const previousScore = Number(previous.querySelector(".table-score").textContent.replace(/\\D/g, "")); const currentScore = Number(row.querySelector(".table-score").textContent.replace(/\\D/g, "")); return rank[previousQuality] < rank[currentQuality] || rank[previousQuality] === rank[currentQuality] && previousScore >= currentScore; }); })()`), true, "Candidate seeds must be sorted from best validation result to worst.");
+    await physicalClick("[data-create-seed-candidate]");
+    await waitFor("candidate carries into validation", () => evaluate(`location.hash === "#create?step=validation" && document.querySelector("[data-create-validation-results]")`));
+    assert.equal(await evaluate(`document.querySelectorAll(".create-validation-context input[disabled]")[1]?.value.includes("A:70% B:30%")`), true, "Validation must retain the selected split ratio.");
+    await physicalClick("[data-create-complete]");
+    await waitFor("wizard completion returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("新增首购引导")`));
+    await evaluate("localStorage.clear(); sessionStorage.clear()");
+    pass("new experiment uses a hidden wizard with domain-owned split ratios and regenerated sorted seeds");
 
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");

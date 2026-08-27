@@ -1,16 +1,23 @@
 export type CreateStep = "basic" | "sample" | "seed" | "validation";
+export interface CreateSplitGroup { id: string; label: string; ratio: number }
+export interface GeneratedSeedConfig { key: string; domain: string; sampleUnit: string; candidateCount: number; template: string; splitGroups: CreateSplitGroup[] }
 
 export interface CreateExperimentDraft {
   savedStep: CreateStep;
-  basic: { name: string; businessLine: string; owner: string; coreMetric: string; guardrailMetric: string; hypothesis: string };
-  sample: { baseline: number; mde: number; confidence: number; power: number; groups: number; dailyTraffic: number; identityCoverage: number; maxDays: number; stableDays: number; guardrailCount: number; businessValue: number };
-  seed: { sampleUnit: string; domain: string; candidateCount: number; template: string; selectedSeed: string };
+  basic: { name: string; businessLine: string; domain: string; owner: string; coreMetric: string; guardrailMetric: string; hypothesis: string };
+  sample: { baseline: number; mde: number; confidence: number; power: number; splitGroups: CreateSplitGroup[]; dailyTraffic: number; identityCoverage: number; maxDays: number; stableDays: number; guardrailCount: number; businessValue: number };
+  seed: { sampleUnit: string; candidateCount: number; template: string; selectedSeed: string; generated: GeneratedSeedConfig };
   validation: { scope: "全部运行实验" | "同业务域" | "同分流层" | "手动指定"; manualExperimentIds: string[] };
 }
 
 export const CREATE_STEPS: CreateStep[];
 export const CREATE_DRAFT_STORAGE_KEY: string;
 export const CREATED_RECORDS_STORAGE_KEY: string;
+export const DEFAULT_SPLIT_GROUPS: CreateSplitGroup[];
+export function normalizeSplitGroups(value: unknown): CreateSplitGroup[];
+export function validateSplitGroups(value: unknown): string[];
+export function calculateSplitSamplePlan(perGroup: number, value: unknown): { total: number; minimumRatio: number; groups: Array<CreateSplitGroup & { samples: number }> };
+export function rankCandidateResults<T extends { quality: "passed" | "warning" | "critical"; score: number; seed: string }>(candidates: T[]): T[];
 export function normalizeCreateStep(value: unknown): CreateStep;
 export function createDefaultDraft(): CreateExperimentDraft;
 export function createHash(step: unknown): string;
