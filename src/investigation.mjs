@@ -9,6 +9,7 @@ export const allowedTransitions = Object.freeze({
 });
 
 const tabs = new Set([
+  "create",
   "evaluate",
   "list",
   "investigate",

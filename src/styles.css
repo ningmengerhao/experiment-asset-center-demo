@@ -1257,6 +1257,142 @@ textarea:focus {
   gap: 10px;
 }
 
+.create-flow-page {
+  align-content: start;
+}
+
+.create-progress {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.create-progress li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  color: var(--text-3);
+  background: var(--bg);
+}
+
+.create-progress span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-3);
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.create-progress strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-progress li.completed {
+  border-color: #c9d8ff;
+  color: var(--primary);
+  background: #f5f9ff;
+}
+
+.create-progress li.completed span,
+.create-progress li.active span {
+  color: #fff;
+  background: var(--primary);
+}
+
+.create-progress li.active {
+  border-color: #8eb5ff;
+  color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.create-basic-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.create-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.create-expand-button {
+  margin-top: 14px;
+}
+
+.create-suggestion-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-3);
+  background: var(--bg);
+}
+
+.create-suggestion-panel div {
+  display: grid;
+  gap: 5px;
+}
+
+.create-suggestion-panel strong {
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.create-suggestion-panel span {
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.create-seed-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.create-seed-generate {
+  grid-column: 1 / -1;
+  justify-self: center;
+}
+
+.create-seed-table {
+  min-width: 760px;
+}
+
+.create-validation-context {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.create-validation-list {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.create-flow-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+}
+
 .stage-step {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr);
@@ -2805,6 +2941,16 @@ textarea:focus {
     margin-left: auto;
   }
 
+  .create-basic-grid,
+  .create-sample-grid,
+  .create-seed-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .create-validation-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .field {
     grid-template-columns: 86px minmax(0, 1fr);
   }
@@ -2938,6 +3084,26 @@ textarea:focus {
   .drawer-section dl,
   .lineage-children {
     grid-template-columns: 1fr;
+  }
+
+  .create-progress,
+  .create-basic-grid,
+  .create-sample-grid,
+  .create-seed-grid,
+  .create-validation-context,
+  .create-validation-list,
+  .create-suggestion-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .create-progress li {
+    min-height: 40px;
+  }
+
+  .create-flow-footer {
+    align-items: stretch;
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .metric-grid.compact-metrics {

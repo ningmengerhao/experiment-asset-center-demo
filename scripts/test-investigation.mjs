@@ -55,6 +55,7 @@ for (const [name, location] of invalidLocationCases) {
 }
 
 assert.equal(parseInvestigationLocation("#governance").tab, "governance");
+assert.equal(parseInvestigationLocation("#create?step=sample").tab, "create");
 assert.equal(buildInvestigationHash("not-a-tab", context), "#list?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
 
 const buildCases = [

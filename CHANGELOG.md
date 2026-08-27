@@ -2,6 +2,16 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Create Experiment Wizard (v0.3.0)
+
+Added:
+
+- Added a hidden `#create` four-step creation route entered from the homepage's existing new-experiment choice dialog; it does not add a sidebar item or change the existing experiment-evaluation route.
+- Added step progression for experiment basics, sample-size evaluation, traffic-split seed selection, and deterministic local pre-launch validation results.
+- Added explicit local draft saving, restoration from the last saved step, per-step completeness validation, and completion back to the experiment ledger with a browser-local record.
+- Reused the existing sample feasibility, seed candidate, and pre-launch validation calculations while leaving the legacy evaluation, split, seed history, and pre-launch pages unchanged.
+- Added unit, UI, static-artifact, browser-flow, and desktop/tablet/mobile responsive regression coverage for the new creation flow.
+
 ## 2026-08-27 - Ledger Toolbar Surface (v0.2.3)
 
 Changed:

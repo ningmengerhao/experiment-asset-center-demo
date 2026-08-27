@@ -499,7 +499,7 @@ async function run() {
     await waitFor("help trigger focus restoration", () => evaluate(`document.activeElement?.id === "headerHelpButton"`));
     pass("help drawer closes with Escape and restores focus");
 
-    await evaluate("sessionStorage.clear()");
+    await evaluate("sessionStorage.clear(); localStorage.clear()");
     await openUrl(`${distUrl}#invalid-route`);
     await waitFor("invalid route normalization", () => evaluate(`location.hash === "#list"`));
     await expectPageContract("list", "实验清单", "experiment-ledger");
@@ -508,9 +508,19 @@ async function run() {
     await physicalClick("[data-open-create-experiment]");
     await waitFor("new experiment method dialog", () => evaluate(`document.querySelector("[data-create-experiment-dialog]")?.getAttribute("aria-modal") === "true"`));
     await physicalClick('[data-create-method="direct"]');
-    await waitFor("direct new experiment opens evaluation", () => evaluate(`location.hash === "#evaluate"`));
-    await expectPageContract("evaluate", "实验评估", "sample-planning");
-    pass("new experiment offers direct creation through the existing evaluation workbench");
+    await waitFor("direct new experiment opens the wizard", () => evaluate(`location.hash === "#create?step=basic" && Boolean(document.querySelector("[data-page-id=\"create\"]"))`));
+    assert.equal(await evaluate(`document.querySelectorAll('[data-nav-id="create"]').length`), 0, "The new experiment wizard must not appear in the sidebar.");
+    await typeText('[data-create-basic="name"]', "新增首购引导");
+    await typeText('[data-create-basic="owner"]', "赵晨");
+    await typeText('[data-create-basic="coreMetric"]', "首购转化率");
+    await typeText('[data-create-basic="guardrailMetric"]', "投诉率");
+    await typeText('[data-create-basic="hypothesis"]', "新版引导可以提升首次购买转化。");
+    await physicalClick("[data-create-next]");
+    await waitFor("basic step saves and advances", () => evaluate(`location.hash === "#create?step=sample" && JSON.parse(localStorage.getItem("experiment-asset-create-draft-v1"))?.savedStep === "sample"`));
+    await openUrl(`${distUrl}#list`);
+    await physicalClick("[data-open-create-experiment]");
+    await waitFor("saved new experiment draft restores", () => evaluate(`location.hash === "#create?step=sample"`));
+    pass("new experiment uses a hidden, saved four-step wizard");
 
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");

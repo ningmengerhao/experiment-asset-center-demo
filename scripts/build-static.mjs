@@ -11,6 +11,8 @@ export const STATIC_FINGERPRINT_FILES = [
   "src/styles.css",
   "src/investigation.mjs",
   "src/investigation.d.mts",
+  "src/create-experiment.mjs",
+  "src/create-experiment.d.mts",
   "src/drawer.mjs",
   "src/drawer.d.mts",
   "src/monitoring.mjs",

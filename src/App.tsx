@@ -42,6 +42,18 @@ import {
   transitionInvestigation,
 } from "./investigation.mjs";
 import type { EvidenceEvent, EvidenceFocus, InvestigationContext, InvestigationStatus } from "./investigation.mjs";
+import {
+  clearCreateDraft,
+  createDefaultDraft,
+  createHash as createExperimentHash,
+  loadCreateDraft,
+  loadCreatedRecords,
+  readCreateStep,
+  saveCreateDraft,
+  saveCreatedRecords,
+  validateCreateStep,
+} from "./create-experiment.mjs";
+import type { CreateExperimentDraft, CreateStep } from "./create-experiment.mjs";
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "./drawer.mjs";
 import type { DrawerName } from "./drawer.mjs";
 import {
@@ -53,6 +65,7 @@ import {
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
 
 type Tab =
+  | "create"
   | "evaluate"
   | "list"
   | "investigate"
@@ -87,6 +100,7 @@ type LedgerFilters = {
   status: string;
   owner: string;
 };
+type CreateSampleField = keyof CreateExperimentDraft["sample"];
 type InvestigationStartOptions = {
   alertId?: string;
   focus?: EvidenceFocus;
@@ -545,7 +559,7 @@ const navGroups: Array<{
   },
 ];
 
-const allTabs = navGroups.flatMap((group) => group.items.map((item) => item.key));
+const allTabs: Tab[] = ["create", ...navGroups.flatMap((group) => group.items.map((item) => item.key))];
 const adminTabs = new Set<Tab>(["importReview", "governance", "permission"]);
 const defaultLedgerFilters: LedgerFilters = {
   keyword: "",
@@ -562,6 +576,7 @@ const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "list", label: "追溯复盘" },
 ];
 const stageByTab: Record<Tab, Tab> = {
+  create: "create",
   evaluate: "evaluate",
   seed: "seed",
   seedHistory: "seed",
@@ -1087,6 +1102,10 @@ function App() {
   const [filterDraft, setFilterDraft] = useState<LedgerFilters>(defaultLedgerFilters);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [createExperimentOpen, setCreateExperimentOpen] = useState(false);
+  const [createDraft, setCreateDraft] = useState<CreateExperimentDraft>(() => loadCreateDraft() ?? createDefaultDraft());
+  const [createStep, setCreateStep] = useState<CreateStep>(() => readCreateStep(typeof window === "undefined" ? "" : window.location.hash));
+  const [createSampleExpanded, setCreateSampleExpanded] = useState(false);
+  const [createdExperiments, setCreatedExperiments] = useState<ExperimentRecord[]>(() => loadCreatedRecords() as ExperimentRecord[]);
   const [seedInputMode, setSeedInputMode] = useState<SeedInputMode>("manual");
   const [seedBase, setSeedBase] = useState("onboarding_core");
   const [seedManualList, setSeedManualList] = useState("member-copy-v2\nsearch_empty_safe\npay_coupon_holdout");
@@ -1135,11 +1154,13 @@ function App() {
   const activeDrawer = drawerStack[drawerStack.length - 1] ?? null;
   const hasOpenDrawer = Boolean(activeDrawer);
 
+  const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments], [createdExperiments]);
+
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
     const sourcePlatformKeyword = filters.sourcePlatformKeyword.trim().toLowerCase();
     const ownerKeyword = filters.owner.trim().toLowerCase();
-    return experiments.filter((item) => {
+    return ledgerExperiments.filter((item) => {
       const matchedKeyword = [item.id, item.name, item.owner, item.businessLine, item.coreMetric, item.trafficLayer]
         .join(" ")
         .toLowerCase()
@@ -1158,7 +1179,7 @@ function App() {
         (!ownerKeyword || item.owner.toLowerCase().includes(ownerKeyword))
       );
     });
-  }, [filters]);
+  }, [filters, ledgerExperiments]);
 
   const seedCandidates = useMemo(() => buildSeedCandidates(seedInputMode, seedManualList, seedTemplate, seedTemplateVars, seedBase, seedCount), [seedInputMode, seedManualList, seedTemplate, seedTemplateVars, seedBase, seedCount]);
 
@@ -1179,9 +1200,9 @@ function App() {
   const visibleGroups = navGroups
     .filter((group) => group.role === "all" || group.role === roleView)
     .map((group) => ({ ...group, items: group.items.filter((item) => roleView === "admin" || !item.adminOnly) }));
-  const activeLabel = visibleGroups.flatMap((group) => group.items).find((item) => item.key === activeTab)?.label ?? "实验清单";
+  const activeLabel = activeTab === "create" ? "新建实验" : visibleGroups.flatMap((group) => group.items).find((item) => item.key === activeTab)?.label ?? "实验清单";
   const activeGroup = visibleGroups.find((group) => group.items.some((item) => item.key === activeTab));
-  const breadcrumbGroup = activeTab === "list" ? "首页" : activeGroup?.title ?? "工作台";
+  const breadcrumbGroup = activeTab === "list" || activeTab === "create" ? "首页" : activeGroup?.title ?? "工作台";
   const breadcrumbLabel = activeTab === "list" ? "实验清单" : activeLabel;
   const searchResults = useMemo(() => {
     const keyword = globalSearchKeyword.trim().toLowerCase();
@@ -1255,7 +1276,7 @@ function App() {
     return buildEvidenceTimeline(scopedContext).slice(0, 5);
   }, [selected, investigationContext]);
   const sourcePlatformTips = ["平台接入", "表格导入", "手动补录"];
-  const ownerTips = Array.from(new Set(experiments.map((item) => item.owner)));
+  const ownerTips = Array.from(new Set(ledgerExperiments.map((item) => item.owner)));
   const importPrecheckRows = runImportPrecheck(importRows);
 
   function updateFilter(key: keyof typeof filters, value: string) {
@@ -1281,8 +1302,109 @@ function App() {
       window.requestAnimationFrame(() => openDrawer("import"));
       return;
     }
-    navigateToTab("evaluate");
-    showToast("已进入实验评估，可开始准备新实验");
+    window.requestAnimationFrame(() => openCreateFlow());
+  }
+
+  function navigateToCreateStep(nextStep: CreateStep, options: { replace?: boolean } = {}) {
+    setCreateStep(nextStep);
+    setActiveTab("create");
+    setInvestigationContext(null);
+    setEvidenceTimeline([]);
+    if (typeof window !== "undefined") {
+      const nextHash = createExperimentHash(nextStep);
+      if (window.location.hash !== nextHash || options.replace) {
+        window.history[options.replace ? "replaceState" : "pushState"](null, "", nextHash);
+      }
+    }
+  }
+
+  function openCreateFlow() {
+    const storedDraft = loadCreateDraft();
+    const nextDraft = storedDraft ?? createDraft;
+    setCreateDraft(nextDraft);
+    navigateToCreateStep(nextDraft.savedStep);
+    showToast(storedDraft ? "已恢复最近一次保存的新建实验草稿" : "开始新增实验");
+  }
+
+  function saveCreateProgress(step = createStep) {
+    const nextDraft = { ...createDraft, savedStep: step };
+    setCreateDraft(nextDraft);
+    if (!saveCreateDraft(nextDraft)) {
+      showToast("本机草稿保存失败，请检查浏览器存储权限");
+      return false;
+    }
+    showToast("新建实验草稿已保存");
+    return true;
+  }
+
+  function validateAndAdvanceCreateStep() {
+    const errors = validateCreateStep(createDraft, createStep);
+    if (errors.length) {
+      showToast(`请补充：${errors[0]}`);
+      return;
+    }
+    const nextStep = createStep === "basic" ? "sample" : createStep === "sample" ? "seed" : null;
+    if (!nextStep || !saveCreateProgress(nextStep)) return;
+    navigateToCreateStep(nextStep);
+  }
+
+  function updateCreateBasic(key: keyof CreateExperimentDraft["basic"], value: string) {
+    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, [key]: value }, seed: key === "businessLine" ? { ...current.seed, domain: value } : current.seed }));
+  }
+
+  function updateCreateSample(key: CreateSampleField, value: number) {
+    setCreateDraft((current) => ({ ...current, sample: { ...current.sample, [key]: value } }));
+  }
+
+  function createLocalExperimentRecord(): ExperimentRecord {
+    const now = new Date();
+    const id = `LOCAL-${now.toISOString().slice(2, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-4)}`;
+    const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
+    return {
+      id,
+      name: createDraft.basic.name.trim(),
+      businessLine: createDraft.basic.businessLine,
+      sourcePlatform: "直接新增",
+      sourceType: "平台接入",
+      owner: createDraft.basic.owner.trim(),
+      relationship: "独立实验",
+      parentExperiment: "-",
+      trafficLayer: `${createDraft.seed.domain}_${createDraft.seed.sampleUnit}`.toLowerCase(),
+      userGroup: createDraft.seed.sampleUnit,
+      rollout: 0,
+      status: "paused",
+      quality: "passed",
+      startTime: timestamp,
+      lastUpdated: timestamp,
+      coreMetric: createDraft.basic.coreMetric.trim(),
+      guardrailMetric: createDraft.basic.guardrailMetric.trim(),
+      stageStatus: "实验前",
+      metricConfig: { metricType: "转化率", baseline: createDraft.sample.baseline, mde: createDraft.sample.mde, confidence: createDraft.sample.confidence, power: createDraft.sample.power, dailyTraffic: createDraft.sample.dailyTraffic },
+      sampleDefinition: { domain: createDraft.seed.domain, source: "历史 A/A", window: "近 14 天", unit: createDraft.seed.sampleUnit },
+      reviewSummary: { conclusion: "已完成本地新增向导与上线前检查。", tags: ["直接新增", createDraft.seed.selectedSeed], similarExperiments: [], nextAction: "等待启动与放量配置" },
+      alertStatus: "info",
+      rolloutEvents: [],
+      sourceQuality: "本地创建",
+      importBatchId: "-",
+      checkSnapshot: { target: createDraft.seed.selectedSeed, preAA: "已通过", uniformity: "已通过", orthogonality: "已通过", sampleScope: `${createDraft.seed.domain} · ${createDraft.seed.sampleUnit}`, updatedAt: timestamp },
+      auditEvents: [{ time: timestamp, operator: createDraft.basic.owner.trim(), action: "通过新增实验向导创建" }],
+    };
+  }
+
+  function completeCreateExperiment() {
+    const errors = validateCreateStep(createDraft, "basic");
+    if (errors.length || !createDraft.seed.selectedSeed) {
+      showToast(errors.length ? `请补充：${errors[0]}` : "请先选择并带入一个候选种子");
+      return;
+    }
+    const record = createLocalExperimentRecord();
+    const nextRecords = [record, ...createdExperiments];
+    setCreatedExperiments(nextRecords);
+    saveCreatedRecords(nextRecords);
+    clearCreateDraft();
+    setCreateDraft(createDefaultDraft());
+    navigateToTab("list");
+    showToast(`已完成创建：${record.name}`);
   }
 
   function resetLedgerFilters() {
@@ -1539,6 +1661,18 @@ function App() {
         navigateToTab("list", { replace: true, context: recoveredContext });
         return;
       }
+      if (recovered.tab === "create") {
+        const rawStep = new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("step");
+        const requestedStep = readCreateStep(window.location.hash);
+        const nextStep = rawStep && rawStep !== requestedStep ? (loadCreateDraft()?.savedStep ?? "basic") : requestedStep;
+        setCreateStep(nextStep);
+        setActiveTab("create");
+        setInvestigationContext(null);
+        setEvidenceTimeline([]);
+        const canonicalHash = createExperimentHash(nextStep);
+        if (window.location.hash !== canonicalHash) window.history.replaceState(null, "", canonicalHash);
+        return;
+      }
       if (adminTabs.has(recovered.tab as Tab) && roleView !== "admin") {
         navigateToTab("list", { replace: true, context: recoveredContext });
         return;
@@ -1758,6 +1892,7 @@ function App() {
               </div>
             </section>
           ) : null}
+          {activeTab === "create" && renderCreateFlow()}
           {activeTab === "evaluate" && renderEvaluation()}
           {activeTab === "list" && renderLedger()}
           {activeTab === "investigate" && renderInvestigation()}
@@ -2173,6 +2308,134 @@ function App() {
       ) : null}
     </div>
   );
+
+  function renderCreateFlow() {
+    const sample = createDraft.sample;
+    const zAlpha = sample.confidence === 99 ? 2.576 : sample.confidence === 90 ? 1.645 : 1.96;
+    const zBeta = sample.power === 95 ? 1.64 : sample.power === 90 ? 1.28 : 0.84;
+    const perGroup = Math.ceil((2 * (zAlpha + zBeta) ** 2 * (sample.baseline / 100) * (1 - sample.baseline / 100)) / Math.max(0.0000001, (sample.mde / 100) ** 2));
+    const total = perGroup * sample.groups;
+    const days = Math.max(1, Math.ceil(total / Math.max(1, sample.dailyTraffic)));
+    const sampleResult = getSampleFeasibility(days);
+    const seedBase = createDraft.seed.template.trim() || `${createDraft.seed.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
+    const createSeedCandidates = buildSeedCandidates("random", "", "", "", seedBase, createDraft.seed.candidateCount);
+    const selectedCandidate = createSeedCandidates.find((item) => item.seed === createDraft.seed.selectedSeed) ?? createSeedCandidates[0] ?? null;
+    const scopeExperiments = experiments.filter((item) => item.status === "running").filter((item) => {
+      if (createDraft.validation.scope === "全部运行实验") return true;
+      if (createDraft.validation.scope === "同业务域") return item.businessLine === createDraft.seed.domain;
+      if (createDraft.validation.scope === "同分流层") return item.trafficLayer === seedBase;
+      return createDraft.validation.manualExperimentIds.includes(item.id);
+    });
+    const validationBase = hashSeed(`${selectedCandidate?.seed ?? seedBase}-${createDraft.seed.domain}-${createDraft.seed.sampleUnit}-${createDraft.validation.scope}`);
+    const preAA = calculatePreAA(
+      Number((sample.baseline - 0.08 + (validationBase % 16) / 100).toFixed(2)),
+      Number((sample.baseline - 0.08 + ((validationBase >>> 5) % 16) / 100).toFixed(2)),
+      Math.max(1000, perGroup),
+    );
+    const uniformity = calculateUniformity(96000 + (validationBase % 8000), 96000 + ((validationBase >>> 7) % 8000), 50);
+    const orthogonality = calculateOrthogonality([
+      47000 + (validationBase % 6000),
+      47000 + ((validationBase >>> 6) % 6000),
+      47000 + ((validationBase >>> 12) % 6000),
+      47000 + ((validationBase >>> 18) % 6000),
+    ]);
+    const ruleConflict = selectedCandidate ? selectedCandidate.conflictRisk >= 8 || scopeExperiments.some((item) => item.trafficLayer === seedBase) : false;
+    const defaultSampleFields: Array<{ key: CreateSampleField; label: string }> = [
+      { key: "baseline", label: "基准指标 %" }, { key: "mde", label: "MDE 百分点" }, { key: "confidence", label: "置信水平 %" }, { key: "power", label: "统计功效 %" },
+      { key: "groups", label: "实验组数" }, { key: "dailyTraffic", label: "日可用流量" }, { key: "identityCoverage", label: "身份覆盖率 %" }, { key: "maxDays", label: "最长可接受周期" },
+    ];
+    const additionalSampleFields: Array<{ key: CreateSampleField; label: string }> = [
+      { key: "stableDays", label: "历史稳定天数" }, { key: "guardrailCount", label: "护栏指标数" }, { key: "businessValue", label: "预期业务价值 %" },
+    ];
+    const previousStep: Record<CreateStep, CreateStep | null> = { basic: null, sample: "basic", seed: "sample", validation: "seed" };
+    const stepIndex = ["basic", "sample", "seed", "validation"].indexOf(createStep);
+    const renderFooter = () => (
+      <div className="create-flow-footer">
+        <button className="ghost-button" data-create-save type="button" onClick={() => saveCreateProgress()}><FileCheck2 size={16} /> 保存</button>
+        <button className="ghost-button" data-create-previous type="button" disabled={!previousStep[createStep]} onClick={() => previousStep[createStep] && navigateToCreateStep(previousStep[createStep]!)}>上一步</button>
+        {createStep === "basic" || createStep === "sample" ? <button className="primary-button" data-create-next type="button" onClick={validateAndAdvanceCreateStep}>下一步</button> : null}
+        {createStep === "validation" ? <button className="primary-button" data-create-complete type="button" onClick={completeCreateExperiment}>完成创建</button> : null}
+      </div>
+    );
+
+    return (
+      <section className="module-page create-flow-page" data-page-id="create" data-page-core="create-experiment-wizard">
+        <div className="page-heading">
+          <div><h1>新增实验</h1><p>按步骤完成实验登记、样本量评估、分流配置和上线前检查。</p></div>
+          <span className="quiet-badge">本机草稿</span>
+        </div>
+        <ol className="create-progress" aria-label="新增实验进度">
+          {(["basic", "sample", "seed", "validation"] as CreateStep[]).map((step, index) => (
+            <li key={step} className={index < stepIndex ? "completed" : index === stepIndex ? "active" : ""} aria-current={index === stepIndex ? "step" : undefined}>
+              <span>{index + 1}</span><strong>{({ basic: "实验基本信息", sample: "样本量评估", seed: "分流方案", validation: "校验结果" } as Record<CreateStep, string>)[step]}</strong>
+            </li>
+          ))}
+        </ol>
+
+        {createStep === "basic" ? <>
+          <Panel title="实验基本信息">
+            <div className="form-grid create-basic-grid">
+              <label className="field vertical wide-field"><span>实验名称</span><input data-create-basic="name" value={createDraft.basic.name} onChange={(event) => updateCreateBasic("name", event.target.value)} /></label>
+              <label className="field vertical"><span>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <label className="field vertical"><span>负责人</span><input data-create-basic="owner" value={createDraft.basic.owner} onChange={(event) => updateCreateBasic("owner", event.target.value)} list="owner-options" /></label>
+              <label className="field vertical"><span>核心指标</span><input data-create-basic="coreMetric" value={createDraft.basic.coreMetric} onChange={(event) => updateCreateBasic("coreMetric", event.target.value)} /></label>
+              <label className="field vertical"><span>护栏指标</span><input data-create-basic="guardrailMetric" value={createDraft.basic.guardrailMetric} onChange={(event) => updateCreateBasic("guardrailMetric", event.target.value)} /></label>
+              <label className="field vertical wide-field"><span>实验假设</span><textarea data-create-basic="hypothesis" rows={4} value={createDraft.basic.hypothesis} onChange={(event) => updateCreateBasic("hypothesis", event.target.value)} /></label>
+            </div>
+          </Panel>
+          {renderFooter()}
+        </> : null}
+
+        {createStep === "sample" ? <>
+          <Panel title="样本量与测试周期">
+            <div className="create-sample-grid">
+              {defaultSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />)}
+              {createSampleExpanded ? additionalSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />) : null}
+            </div>
+            <button className="link-button create-expand-button" type="button" onClick={() => setCreateSampleExpanded((current) => !current)}>{createSampleExpanded ? "收起" : "展开"}</button>
+          </Panel>
+          <Panel title="可行性结论">
+            <div className="result-grid three-metrics"><Metric label="每组样本量" value={formatNumber(perGroup)} /><Metric label="总样本量" value={formatNumber(total)} /><Metric label="预计周期" value={`${days} 天`} tone={sampleResult.status === "passed" ? "success" : sampleResult.status === "warning" ? "warning" : "danger"} /></div>
+            <div className={`recommendation-panel ${sampleResult.status}`}><strong>{sampleResult.label}</strong><p>{sampleResult.advice}</p></div>
+          </Panel>
+          <section className="create-suggestion-panel" aria-label="建议方案">
+            <div><strong>五维可行性评估</strong><span>流量覆盖 {sample.identityCoverage}% · 基线稳定 {sample.stableDays} 天 · 实验污染 {sample.groups} 组 · 护栏完整 {sample.guardrailCount} 项 · 业务价值 {sample.businessValue}%</span></div>
+            <div><strong>替代方案</strong><span>扩大客群、调整 MDE、减少分组、延长周期、准实验、前后对比。</span></div>
+          </section>
+          {renderFooter()}
+        </> : null}
+
+        {createStep === "seed" ? <>
+          <Panel title="生成配置">
+            <div className="create-seed-grid">
+              <label className="field vertical"><span>样本口径</span><select value={createDraft.seed.sampleUnit} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, sampleUnit: event.target.value } }))}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
+              <label className="field vertical"><span>实验域</span><select value={createDraft.seed.domain} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, domain: event.target.value } }))}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <NumberField label="候选种子数量" value={createDraft.seed.candidateCount} onChange={(value) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, candidateCount: value } }))} />
+              <label className="field vertical"><span>随机数种子模板（可选）</span><input value={createDraft.seed.template} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, template: event.target.value } }))} /></label>
+              <button className="primary-button create-seed-generate" type="button" onClick={() => { const errors = validateCreateStep(createDraft, "seed"); if (errors.length) return showToast(`请补充：${errors[0]}`); setCreateDraft((current) => ({ ...current, seed: { ...current.seed, selectedSeed: "" } })); showToast("已生成随机数种子"); }}><Shuffle size={16} /> 生成随机数种子</button>
+            </div>
+          </Panel>
+          <Panel title="候选种子列表">
+            <div className="table-wrap"><table className="data-table compact sticky-actions create-seed-table"><thead><tr><th>序号</th><th>候选种子</th><th>样本口径</th><th>分流比例</th><th>校验结果</th><th>操作</th></tr></thead><tbody>
+              {createSeedCandidates.map((item, index) => { const status: QualityStatus = item.score >= 88 ? "passed" : item.score >= 82 ? "warning" : "critical"; return <tr key={item.seed}><td>{index + 1}</td><td className="mono">{item.seed}</td><td>{createDraft.seed.domain} · {createDraft.seed.sampleUnit}</td><td>{index % 3 === 0 ? "A:50% B:50%" : index % 3 === 1 ? "A:70% B:30%" : "A:80% B:20%"}</td><td><span className={`quality-badge ${status}`}>{status === "passed" ? "通过" : status === "warning" ? "警告" : "不通过"}</span></td><td><button className="link-button" type="button" data-create-seed-candidate onClick={() => { const nextDraft = { ...createDraft, savedStep: "validation" as CreateStep, seed: { ...createDraft.seed, selectedSeed: item.seed } }; setCreateDraft(nextDraft); if (!saveCreateDraft(nextDraft)) return showToast("本机草稿保存失败"); navigateToCreateStep("validation"); showToast("已带入上线前检查"); }}>带入上线前检查</button></td></tr>; })}
+            </tbody></table></div>
+          </Panel>
+          {renderFooter()}
+        </> : null}
+
+        {createStep === "validation" ? <>
+          <Panel title="校验范围"><div className="create-validation-context"><label className="field vertical"><span>校验范围</span><select value={createDraft.validation.scope} onChange={(event) => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, scope: event.target.value as CheckScopeMode } }))}>{(["全部运行实验", "同业务域", "同分流层", "手动指定"] as CheckScopeMode[]).map((scope) => <option key={scope}>{scope}</option>)}</select></label><label className="field vertical"><span>检验对象</span><input disabled value={`${createDraft.basic.name || "未命名实验"} · ${createDraft.seed.selectedSeed || "未选择种子"}`} /></label><label className="field vertical"><span>样本口径</span><input disabled value={`${createDraft.seed.domain} · 历史 A/A · 近 14 天 · ${createDraft.seed.sampleUnit}`} /></label></div>{createDraft.validation.scope === "手动指定" ? <div className="manual-scope-list">{experiments.filter((item) => item.status === "running").map((item) => <label key={item.id}><input type="checkbox" checked={createDraft.validation.manualExperimentIds.includes(item.id)} onChange={() => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, manualExperimentIds: current.validation.manualExperimentIds.includes(item.id) ? current.validation.manualExperimentIds.filter((id) => id !== item.id) : [...current.validation.manualExperimentIds, item.id] } }))} />{item.name}</label>)}</div> : <p className="hint">范围内运行实验 {scopeExperiments.length} 个</p>}</Panel>
+          <Panel title="上线前检查结果"><div className="validation-list create-validation-list" data-create-validation-results>
+            <div className={`validation-item ${preAA.passed ? "passed" : "critical"}`}><span>Pre-AA</span><strong>{preAA.passed ? "通过" : "不通过"}</strong><p>历史 A/A {preAA.passed ? "未见显著差异" : "存在显著差异"}</p><em>p = {preAA.pValue.toFixed(4)}</em></div>
+            <div className={`validation-item ${uniformity.passed ? "passed" : "critical"}`}><span>均匀性</span><strong>{uniformity.passed ? "通过" : "不通过"}</strong><p>分桶偏差 {uniformity.deviation.toFixed(2)}%</p><em>p = {uniformity.pValue.toFixed(4)}</em></div>
+            <div className={`validation-item ${orthogonality.passed ? "passed" : "warning"}`}><span>正交性</span><strong>{orthogonality.passed ? "通过" : "需关注"}</strong><p>{createDraft.validation.scope}下的交叉分布</p><em>p = {orthogonality.pValue.toFixed(4)}</em></div>
+            <div className={`validation-item ${ruleConflict ? "warning" : "passed"}`}><span>规则冲突</span><strong>{ruleConflict ? "需关注" : "通过"}</strong><p>{ruleConflict ? "命中同层或候选种子风险" : "未命中阻断规则"}</p><em>范围内实验 {scopeExperiments.length} 个</em></div>
+          </div></Panel>
+          {renderFooter()}
+        </> : null}
+      </section>
+    );
+  }
 
   function renderLedger() {
     return (
