@@ -721,18 +721,23 @@ textarea:focus-visible,
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 18px;
+  margin-bottom: 16px;
   padding: 12px;
-  border-bottom: 1px solid var(--line-soft);
-  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  background: var(--surface);
 }
 
 .ledger-filter-grid {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 1 624px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .ledger-filter-grid .field {
@@ -2969,10 +2974,19 @@ textarea:focus {
 
   .ledger-filter-grid {
     flex: 1 1 100%;
+    flex-wrap: nowrap;
   }
 
-  .ledger-filter-grid .field {
-    flex: 1 1 100%;
+  .ledger-filter-grid .ledger-keyword-field {
+    flex: 0 0 192px;
+  }
+
+  .ledger-filter-grid .ledger-owner-field {
+    flex: 0 0 152px;
+  }
+
+  .ledger-filter-grid .ledger-select-field {
+    flex: 0 0 128px;
   }
 
   .create-experiment-options {

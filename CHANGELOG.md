@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Ledger Toolbar Surface (v0.2.3)
+
+Changed:
+
+- Kept the four default filter controls on one unbroken horizontal row; narrow screens scroll that control group locally rather than wrapping its fields.
+- Changed the ledger toolbar to a white bordered surface and separated it from the table header with a consistent gap.
+- Added regression assertions for the single-row filter controls and white toolbar surface.
+
 ## 2026-08-27 - Single-Row Ledger Toolbar (v0.2.2)
 
 Changed:

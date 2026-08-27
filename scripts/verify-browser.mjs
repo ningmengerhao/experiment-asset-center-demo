@@ -518,6 +518,8 @@ async function run() {
     assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="keyword"]')?.getAttribute("placeholder")`), "实验 ID / 名称", "Ledger keyword input must display its filter name.");
     assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="owner"]')?.getAttribute("list")`), "owner-options", "Ledger owner filter must offer known-owner suggestions.");
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-filter] input, [data-ledger-default-filters] select").length`), 4, "Ledger toolbar must keep four inline filter controls.");
+    assert.equal(await evaluate(`new Set([...document.querySelectorAll("[data-ledger-default-filters] input, [data-ledger-default-filters] select")].map((control) => Math.round(control.getBoundingClientRect().top))).size`), 1, "Ledger filter controls must remain on one horizontal row.");
+    assert.equal(await evaluate(`getComputedStyle(document.querySelector(".ledger-filter-bar")).backgroundColor`), "rgb(255, 255, 255)", "Ledger toolbar must use a white surface distinct from the table header.");
     await typeText('[data-ledger-filter="owner"]', "陈");
     await waitFor("owner fuzzy filter", () => evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length === 1`));
     await physicalClick("[data-reset-ledger]");
