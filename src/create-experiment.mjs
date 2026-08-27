@@ -49,6 +49,18 @@ export function rankCandidateResults(candidates) {
   return [...candidates].sort((left, right) => (rank[left.quality] ?? 3) - (rank[right.quality] ?? 3) || right.score - left.score || left.seed.localeCompare(right.seed));
 }
 
+export function createShortSeedSuffix(generationKey, index) {
+  let hash = 2166136261;
+  const source = `${generationKey}:${index}`;
+  for (let offset = 0; offset < source.length; offset += 1) {
+    hash ^= source.charCodeAt(offset);
+    hash = Math.imul(hash, 16777619);
+  }
+  const length = 4 + (hash >>> 0) % 5;
+  const modulus = 10 ** length;
+  return String((hash >>> 0) % modulus).padStart(length, "0");
+}
+
 export function normalizeCreateStep(value) {
   return CREATE_STEPS.includes(value) ? value : "basic";
 }
@@ -89,6 +101,7 @@ export function createDefaultDraft() {
         sampleUnit: "用户",
         candidateCount: 6,
         template: "",
+        attempts: 0,
         splitGroups: DEFAULT_SPLIT_GROUPS.map((group) => ({ ...group })),
       },
     },

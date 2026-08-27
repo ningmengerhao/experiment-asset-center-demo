@@ -4,6 +4,7 @@ import {
   CREATED_RECORDS_STORAGE_KEY,
   CREATE_DRAFT_STORAGE_KEY,
   clearCreateDraft,
+  createShortSeedSuffix,
   createDefaultDraft,
   createHash,
   loadCreateDraft,
@@ -46,6 +47,9 @@ const splitPlan = calculateSplitSamplePlan(100, [{ id: "a", label: "A", ratio: 7
 assert.equal(splitPlan.total, 1000);
 assert.equal(splitPlan.groups.reduce((total, group) => total + group.samples, 0), 1000);
 assert.equal(splitPlan.groups.find((group) => group.label === "C")?.samples, 100);
+const shortSuffixes = Array.from({ length: 12 }, (_, index) => createShortSeedSuffix("generation-key", index));
+assert.equal(shortSuffixes.every((suffix) => /^\d{4,8}$/.test(suffix)), true);
+assert.equal(new Set(shortSuffixes).size, shortSuffixes.length);
 assert.deepEqual(validateCreateStep({ ...completedBasic, seed: { ...completedBasic.seed, candidateCount: 13 } }, "seed"), ["候选种子数量"]);
 
 assert.deepEqual(rankCandidateResults([

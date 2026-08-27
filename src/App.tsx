@@ -45,6 +45,7 @@ import type { EvidenceEvent, EvidenceFocus, InvestigationContext, InvestigationS
 import {
   calculateSplitSamplePlan,
   clearCreateDraft,
+  createShortSeedSuffix,
   createDefaultDraft,
   createHash as createExperimentHash,
   loadCreateDraft,
@@ -55,7 +56,7 @@ import {
   saveCreatedRecords,
   validateCreateStep,
 } from "./create-experiment.mjs";
-import type { CreateExperimentDraft, CreateStep } from "./create-experiment.mjs";
+import type { CreateExperimentDraft, CreateStep, GeneratedSeedConfig } from "./create-experiment.mjs";
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "./drawer.mjs";
 import type { DrawerName } from "./drawer.mjs";
 import {
@@ -1031,6 +1032,22 @@ function buildSeedCandidates(mode: SeedInputMode, manualText: string, template: 
   return seeds.slice(0, Math.max(1, count)).map(scoreSeed);
 }
 
+function buildCreateSeedCandidates(generated: GeneratedSeedConfig) {
+  const base = generated.template.trim() || `${generated.domain}_${generated.sampleUnit}`.toLowerCase();
+  const suffixes = new Set<string>();
+  const seeds = Array.from({ length: Math.max(1, generated.candidateCount) }, (_, index) => {
+    let collision = 0;
+    let suffix = createShortSeedSuffix(generated.key, index);
+    while (suffixes.has(suffix)) {
+      collision += 1;
+      suffix = createShortSeedSuffix(`${generated.key}:${collision}`, index);
+    }
+    suffixes.add(suffix);
+    return `${base}_${suffix}`;
+  });
+  return rankCandidateResults(seeds.map(scoreSeed).map((item) => ({ ...item, quality: item.score >= 82 ? "passed" as const : item.score >= 78 ? "warning" as const : "critical" as const })));
+}
+
 function erf(x: number) {
   const sign = x >= 0 ? 1 : -1;
   const absolute = Math.abs(x);
@@ -1392,23 +1409,32 @@ function App() {
   function generateCreateSeeds() {
     const errors = [...validateCreateStep(createDraft, "sample"), ...validateCreateStep(createDraft, "seed")];
     if (errors.length) return showToast(`请补充：${errors[0]}`);
-    const randomPart = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    const maxAttempts = 20;
+    let generated: GeneratedSeedConfig | null = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const key = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${attempt}`;
+      const candidate: GeneratedSeedConfig = {
+        key,
+        domain: createDraft.basic.domain,
+        sampleUnit: createDraft.seed.sampleUnit,
+        candidateCount: createDraft.seed.candidateCount,
+        template: createDraft.seed.template,
+        attempts: attempt,
+        splitGroups: createDraft.sample.splitGroups.map((group) => ({ ...group })),
+      };
+      generated = candidate;
+      if (buildCreateSeedCandidates(candidate).some((item) => item.quality === "passed")) break;
+    }
+    const hasPassedCandidate = generated ? buildCreateSeedCandidates(generated).some((item) => item.quality === "passed") : false;
     setCreateDraft((current) => ({
       ...current,
       seed: {
         ...current.seed,
         selectedSeed: "",
-        generated: {
-          key: randomPart,
-          domain: current.basic.domain,
-          sampleUnit: current.seed.sampleUnit,
-          candidateCount: current.seed.candidateCount,
-          template: current.seed.template,
-          splitGroups: current.sample.splitGroups.map((group) => ({ ...group })),
-        },
+        generated: generated ?? current.seed.generated,
       },
     }));
-    showToast("已重新生成一组随机数种子");
+    showToast(hasPassedCandidate ? `已在第 ${generated?.attempts} 轮生成含通过结果的随机数种子` : "已自动尝试 20 轮，暂未生成通过结果，请调整配置后重试");
   }
 
   function createLocalExperimentRecord(): ExperimentRecord {
@@ -2378,9 +2404,8 @@ function App() {
     const generatedSplitRatio = generated.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
     const currentSplitRatio = splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
     const seedBase = `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
-    const generatedBase = generated.template.trim() || `${generated.domain}_${generated.sampleUnit}`.toLowerCase();
     const isGeneratedConfigCurrent = generated.domain === createDraft.basic.domain && generated.sampleUnit === createDraft.seed.sampleUnit && generated.candidateCount === createDraft.seed.candidateCount && generated.template === createDraft.seed.template && generatedSplitRatio === currentSplitRatio;
-    const createSeedCandidates = rankCandidateResults(buildSeedCandidates("random", "", "", "", `${generatedBase}_${generated.key}`, generated.candidateCount).map((item) => ({ ...item, quality: item.score >= 88 ? "passed" as const : item.score >= 82 ? "warning" as const : "critical" as const })));
+    const createSeedCandidates = buildCreateSeedCandidates(generated);
     const selectedCandidate = createSeedCandidates.find((item) => item.seed === createDraft.seed.selectedSeed) ?? createSeedCandidates[0] ?? null;
     const scopeExperiments = experiments.filter((item) => item.status === "running").filter((item) => {
       if (createDraft.validation.scope === "全部运行实验") return true;
@@ -2491,7 +2516,7 @@ function App() {
               <label className="field vertical"><span>随机数种子模板（可选）</span><input data-create-seed-template value={createDraft.seed.template} onChange={(event) => updateCreateSeedConfig("template", event.target.value)} /></label>
               <button className="primary-button create-seed-generate" data-create-seed-generate type="button" onClick={generateCreateSeeds}><Shuffle size={16} /> 生成随机数种子</button>
             </div>
-            <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span></div>
+            <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span><span data-create-seed-attempts={generated.attempts}><small>自动刷新</small><strong>{generated.attempts ? `第 ${generated.attempts} 轮生成` : "尚未重新生成"}</strong></span></div>
           </Panel>
           <Panel title="候选种子列表">
             {!isGeneratedConfigCurrent ? <p className="create-seed-stale" data-create-seed-stale>生成配置已修改，请重新生成随机数种子后再带入上线前检查。</p> : null}

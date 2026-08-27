@@ -1,6 +1,6 @@
 export type CreateStep = "basic" | "sample" | "seed" | "validation";
 export interface CreateSplitGroup { id: string; label: string; ratio: number }
-export interface GeneratedSeedConfig { key: string; domain: string; sampleUnit: string; candidateCount: number; template: string; splitGroups: CreateSplitGroup[] }
+export interface GeneratedSeedConfig { key: string; domain: string; sampleUnit: string; candidateCount: number; template: string; attempts: number; splitGroups: CreateSplitGroup[] }
 
 export interface CreateExperimentDraft {
   savedStep: CreateStep;
@@ -18,6 +18,7 @@ export function normalizeSplitGroups(value: unknown): CreateSplitGroup[];
 export function validateSplitGroups(value: unknown): string[];
 export function calculateSplitSamplePlan(perGroup: number, value: unknown): { total: number; minimumRatio: number; groups: Array<CreateSplitGroup & { samples: number }> };
 export function rankCandidateResults<T extends { quality: "passed" | "warning" | "critical"; score: number; seed: string }>(candidates: T[]): T[];
+export function createShortSeedSuffix(generationKey: unknown, index: number): string;
 export function normalizeCreateStep(value: unknown): CreateStep;
 export function createDefaultDraft(): CreateExperimentDraft;
 export function createHash(step: unknown): string;

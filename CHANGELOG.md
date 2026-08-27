@@ -2,6 +2,16 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Short Seed Auto Refresh (v0.3.2)
+
+Changed:
+
+- Replaced the visible UUID-derived candidate suffix with a unique four-to-eight-digit numeric suffix in the new-experiment wizard only.
+- Updated one generate action to try up to 20 local random candidate groups and stop early when at least one result is marked passed.
+- Kept the best final generated group and reported the 20-round limit when a passing result cannot be found.
+- Tuned only the new-wizard candidate threshold for the compact numeric seed representation; existing split tooling remains unchanged.
+- Added logic and browser assertions for suffix length, automatic attempt bounds, and passing candidate generation.
+
 ## 2026-08-27 - Split Configuration in Create Wizard (v0.3.1)
 
 Changed:
