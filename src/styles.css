@@ -736,7 +736,8 @@ textarea:focus-visible,
 
 .ledger-filter-bar {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+  flex-direction: column;
   gap: 14px;
   margin-top: 20px;
   padding-bottom: 18px;
@@ -745,8 +746,7 @@ textarea:focus-visible,
 
 .ledger-filter-grid {
   display: grid;
-  flex: 1 1 auto;
-  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  grid-template-columns: 118px repeat(2, minmax(154px, 184px)) 118px;
   gap: 12px;
   min-width: 0;
 }
@@ -757,7 +757,14 @@ textarea:focus-visible,
 
 .ledger-filter-actions {
   flex: 0 0 auto;
+  justify-content: flex-end;
   padding-bottom: 0;
+}
+
+.ledger-keyword-field input,
+.ledger-owner-field input {
+  inline-size: calc(5em + 24px);
+  max-width: 100%;
 }
 
 .filter-grid {
@@ -2693,15 +2700,6 @@ textarea:focus {
 
   .filter-grid {
     grid-template-columns: repeat(2, minmax(240px, 1fr));
-  }
-
-  .ledger-filter-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .ledger-filter-actions {
-    justify-content: flex-end;
   }
 
   .slim-filter {

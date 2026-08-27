@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Compact Ledger Filters (v0.2.1)
+
+Changed:
+
+- Shortened the ledger experiment ID/name input to a five-Chinese-character content width and removed its placeholder text.
+- Replaced the owner select with an input backed by known-owner suggestions and case-insensitive partial-name matching.
+- Separated ledger fields from filtering actions: four compact fields occupy the first row, while more filters, query, and reset occupy a right-aligned second row.
+- Added regression coverage for the compact keyword input and owner filtering behavior.
+
 ## 2026-08-26 - Home Ledger and Filter Dialog (v0.2.0)
 
 Changed:

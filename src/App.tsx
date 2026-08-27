@@ -552,7 +552,7 @@ const defaultLedgerFilters: LedgerFilters = {
   businessLine: "all",
   sourcePlatformKeyword: "",
   status: "all",
-  owner: "all",
+  owner: "",
 };
 const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "evaluate", label: "实验前评估" },
@@ -1137,6 +1137,7 @@ function App() {
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
     const sourcePlatformKeyword = filters.sourcePlatformKeyword.trim().toLowerCase();
+    const ownerKeyword = filters.owner.trim().toLowerCase();
     return experiments.filter((item) => {
       const matchedKeyword = [item.id, item.name, item.owner, item.businessLine, item.coreMetric, item.trafficLayer]
         .join(" ")
@@ -1153,7 +1154,7 @@ function App() {
         matchedSource &&
         (filters.businessLine === "all" || item.businessLine === filters.businessLine) &&
         (filters.status === "all" || item.status === filters.status) &&
-        (filters.owner === "all" || item.owner === filters.owner)
+        (!ownerKeyword || item.owner.toLowerCase().includes(ownerKeyword))
       );
     });
   }, [filters]);
@@ -1253,6 +1254,7 @@ function App() {
     return buildEvidenceTimeline(scopedContext).slice(0, 5);
   }, [selected, investigationContext]);
   const sourcePlatformTips = ["平台接入", "表格导入", "手动补录"];
+  const ownerTips = Array.from(new Set(experiments.map((item) => item.owner)));
   const importPrecheckRows = runImportPrecheck(importRows);
 
   function updateFilter(key: keyof typeof filters, value: string) {
@@ -2020,9 +2022,9 @@ function App() {
               </button>
             </div>
             <div className="filter-dialog-grid">
-              <label className="field vertical">
+              <label className="field vertical filter-dialog-keyword-field">
                 <span>实验 ID / 名称</span>
-                <input data-filter-draft="keyword" value={filterDraft.keyword} onChange={(event) => updateFilterDraft("keyword", event.target.value)} placeholder="请输入实验 ID 或实验名称" />
+                <input data-filter-draft="keyword" value={filterDraft.keyword} onChange={(event) => updateFilterDraft("keyword", event.target.value)} />
               </label>
               <label className="field vertical">
                 <span>业务线</span>
@@ -2050,14 +2052,7 @@ function App() {
               </label>
               <label className="field vertical">
                 <span>负责人</span>
-                <select data-filter-draft="owner" value={filterDraft.owner} onChange={(event) => updateFilterDraft("owner", event.target.value)}>
-                  <option value="all">全部负责人</option>
-                  <option>赵晨</option>
-                  <option>陈露</option>
-                  <option>周一帆</option>
-                  <option>吴雅</option>
-                  <option>刘昕</option>
-                </select>
+                <input data-filter-draft="owner" value={filterDraft.owner} onChange={(event) => updateFilterDraft("owner", event.target.value)} list="owner-options" />
               </label>
             </div>
             <div className="drawer-actions">
@@ -2154,9 +2149,9 @@ function App() {
 
         <div className="ledger-filter-bar">
           <div className="ledger-filter-grid" data-ledger-default-filters>
-          <label className="field vertical">
+          <label className="field vertical ledger-keyword-field">
             <span>实验 ID / 名称</span>
-            <input value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} placeholder="请输入实验 ID 或实验名称" />
+            <input data-ledger-filter="keyword" value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} />
           </label>
           <label className="field vertical">
             <span>业务线</span>
@@ -2178,16 +2173,9 @@ function App() {
               <option value="ended">已结束</option>
             </select>
           </label>
-          <label className="field vertical">
+          <label className="field vertical ledger-owner-field">
             <span>负责人</span>
-            <select value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)}>
-              <option value="all">全部负责人</option>
-              <option>赵晨</option>
-              <option>陈露</option>
-              <option>周一帆</option>
-              <option>吴雅</option>
-              <option>刘昕</option>
-            </select>
+            <input data-ledger-filter="owner" value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)} list="owner-options" />
           </label>
           </div>
           <div className="ledger-filter-actions">
@@ -2206,6 +2194,11 @@ function App() {
         <datalist id="source-platform-options">
           {sourcePlatformTips.map((tip) => (
             <option key={tip} value={tip} />
+          ))}
+        </datalist>
+        <datalist id="owner-options">
+          {ownerTips.map((owner) => (
+            <option key={owner} value={owner} />
           ))}
         </datalist>
 

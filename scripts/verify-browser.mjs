@@ -513,6 +513,12 @@ async function run() {
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] [data-filter-draft]").length`), 0, "Source filtering must not appear in the default filter row.");
+    assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="keyword"]')?.getAttribute("placeholder")`), null, "Ledger keyword input must not show placeholder text.");
+    assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="owner"]')?.getAttribute("list")`), "owner-options", "Ledger owner filter must offer known-owner suggestions.");
+    await typeText('[data-ledger-filter="owner"]', "陈");
+    await waitFor("owner fuzzy filter", () => evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length === 1`));
+    await physicalClick(`[data-page-id="list"] .ledger-filter-actions .ghost-button:last-child`);
+    await waitFor("owner filter reset", () => evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length === 5`));
     await physicalClick("[data-open-filter-dialog]");
     await waitFor("filter dialog", () => evaluate(`document.querySelector("[data-filter-dialog]")?.getAttribute("aria-modal") === "true"`));
     await typeText('[data-filter-draft="sourcePlatformKeyword"]', "手动补录");

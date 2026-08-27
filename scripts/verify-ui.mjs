@@ -59,6 +59,8 @@ check("stage controls are semantic buttons", includesAll(app, ["stageTargets.map
 check("help trigger is accessible and stable", includesAll(app, ['id="headerHelpButton"', 'aria-label="帮助文档"']));
 check("drawers expose dialog semantics", includesAll(app, ['role="dialog"', 'aria-modal="true"', "closeTopmostDrawer", "trapDrawerFocus"]));
 check("ledger exposes four default filters and a draft-backed filter dialog", includesAll(app, ["data-ledger-default-filters", "data-open-filter-dialog", "filterDialogOpen", "filterDraft", "applyFilterDraft", "data-filter-dialog"]));
+check("ledger keyword is placeholder-free and owner supports fuzzy input", includesAll(app, ["data-ledger-filter=\"keyword\"", "data-ledger-filter=\"owner\"", "const ownerKeyword", "includes(ownerKeyword)", "owner-options"]));
+check("ledger filters separate fields from actions and keep compact text inputs", includesAll(css, [".ledger-filter-bar", "flex-direction: column", ".ledger-filter-actions", ".ledger-keyword-field input", "calc(5em + 24px)"]));
 check("ledger filter dialog uses a responsive two-column layout", includesAll(css, [".filter-dialog-grid", "grid-template-columns: repeat(2", ".filter-dialog-mask"]));
 check("new experiment control is a dark navigation action", includesAll(app, ["data-home-create-experiment", 'navigateToTab("evaluate")']) && includesAll(css, [".create-experiment-button", "background: #1d2129"]));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
