@@ -1086,6 +1086,7 @@ function App() {
   const [filters, setFilters] = useState<LedgerFilters>(defaultLedgerFilters);
   const [filterDraft, setFilterDraft] = useState<LedgerFilters>(defaultLedgerFilters);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [createExperimentOpen, setCreateExperimentOpen] = useState(false);
   const [seedInputMode, setSeedInputMode] = useState<SeedInputMode>("manual");
   const [seedBase, setSeedBase] = useState("onboarding_core");
   const [seedManualList, setSeedManualList] = useState("member-copy-v2\nsearch_empty_safe\npay_coupon_holdout");
@@ -1270,6 +1271,20 @@ function App() {
     openDrawer("filters");
   }
 
+  function openCreateExperimentDialog() {
+    openDrawer("create");
+  }
+
+  function chooseCreateMethod(method: "import" | "direct") {
+    closeTopmostDrawer();
+    if (method === "import") {
+      window.requestAnimationFrame(() => openDrawer("import"));
+      return;
+    }
+    navigateToTab("evaluate");
+    showToast("已进入实验评估，可开始准备新实验");
+  }
+
   function resetLedgerFilters() {
     setFilters({ ...defaultLedgerFilters });
     setFilterDraft({ ...defaultLedgerFilters });
@@ -1298,6 +1313,7 @@ function App() {
     if (drawer === "help") setHelpDrawer(true);
     if (drawer === "import") setBulkImportOpen(true);
     if (drawer === "filters") setFilterDialogOpen(true);
+    if (drawer === "create") setCreateExperimentOpen(true);
     setDrawerStack((current) => pushDrawer(current, drawer));
   }
 
@@ -1312,6 +1328,7 @@ function App() {
     if (result.closed === "help") setHelpDrawer(false);
     if (result.closed === "import") setBulkImportOpen(false);
     if (result.closed === "filters") setFilterDialogOpen(false);
+    if (result.closed === "create") setCreateExperimentOpen(false);
     setDrawerStack(result.stack);
   }
 
@@ -2023,13 +2040,13 @@ function App() {
             </div>
             <div className="filter-dialog-grid">
               <label className="field vertical filter-dialog-keyword-field">
-                <span>实验 ID / 名称</span>
-                <input data-filter-draft="keyword" value={filterDraft.keyword} onChange={(event) => updateFilterDraft("keyword", event.target.value)} />
+                <span className="sr-only">实验 ID / 名称</span>
+                <input data-filter-draft="keyword" value={filterDraft.keyword} onChange={(event) => updateFilterDraft("keyword", event.target.value)} placeholder="实验 ID / 名称" />
               </label>
               <label className="field vertical">
-                <span>业务线</span>
+                <span className="sr-only">业务线</span>
                 <select data-filter-draft="businessLine" value={filterDraft.businessLine} onChange={(event) => updateFilterDraft("businessLine", event.target.value)}>
-                  <option value="all">全部业务线</option>
+                  <option value="all">业务线</option>
                   <option>增长</option>
                   <option>会员</option>
                   <option>推荐</option>
@@ -2038,26 +2055,52 @@ function App() {
                 </select>
               </label>
               <label className="field vertical">
-                <span>来源关键词</span>
-                <input data-filter-draft="sourcePlatformKeyword" value={filterDraft.sourcePlatformKeyword} onChange={(event) => updateFilterDraft("sourcePlatformKeyword", event.target.value)} placeholder="平台名 / 接入方式 / 业务关键词" list="source-platform-options" />
+                <span className="sr-only">来源关键词</span>
+                <input data-filter-draft="sourcePlatformKeyword" value={filterDraft.sourcePlatformKeyword} onChange={(event) => updateFilterDraft("sourcePlatformKeyword", event.target.value)} placeholder="来源关键词" list="source-platform-options" />
               </label>
               <label className="field vertical">
-                <span>状态</span>
+                <span className="sr-only">状态</span>
                 <select data-filter-draft="status" value={filterDraft.status} onChange={(event) => updateFilterDraft("status", event.target.value)}>
-                  <option value="all">全部状态</option>
+                  <option value="all">状态</option>
                   <option value="running">运行中</option>
                   <option value="paused">已暂停</option>
                   <option value="ended">已结束</option>
                 </select>
               </label>
               <label className="field vertical">
-                <span>负责人</span>
-                <input data-filter-draft="owner" value={filterDraft.owner} onChange={(event) => updateFilterDraft("owner", event.target.value)} list="owner-options" />
+                <span className="sr-only">负责人</span>
+                <input data-filter-draft="owner" value={filterDraft.owner} onChange={(event) => updateFilterDraft("owner", event.target.value)} list="owner-options" placeholder="负责人" />
               </label>
             </div>
             <div className="drawer-actions">
               <button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button>
               <button className="primary-button" type="button" onClick={applyFilterDraft}>确定</button>
+            </div>
+          </aside>
+        </div>
+      ) : null}
+
+      {createExperimentOpen && activeDrawer === "create" ? (
+        <div className="drawer-mask filter-dialog-mask show" data-create-experiment-mask onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer create-experiment-dialog" data-create-experiment-dialog role="dialog" aria-modal="true" aria-labelledby="create-experiment-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div>
+                <span>实验清单</span>
+                <h2 id="create-experiment-title">新建实验</h2>
+              </div>
+              <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭新建实验" onClick={closeTopmostDrawer}>
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="create-experiment-options">
+              <button className="create-path-button" data-create-method="import" type="button" onClick={() => chooseCreateMethod("import")}>
+                <Upload size={20} aria-hidden="true" />
+                <span>上传导入</span>
+              </button>
+              <button className="create-path-button" data-create-method="direct" type="button" onClick={() => chooseCreateMethod("direct")}>
+                <FlaskConical size={20} aria-hidden="true" />
+                <span>直接新增</span>
+              </button>
             </div>
           </aside>
         </div>
@@ -2141,52 +2184,52 @@ function App() {
           </div>
           <div className="ledger-heading-actions">
             <span className="quiet-badge">数据更新时间：2026-07-03 10:30</span>
-            <button className="create-experiment-button" data-home-create-experiment type="button" onClick={() => { navigateToTab("evaluate"); showToast("已进入实验评估，可开始准备新实验"); }}>
-              <Plus size={16} /> 新建实验
-            </button>
           </div>
         </div>
 
         <div className="ledger-filter-bar">
           <div className="ledger-filter-grid" data-ledger-default-filters>
-          <label className="field vertical ledger-keyword-field">
-            <span>实验 ID / 名称</span>
-            <input data-ledger-filter="keyword" value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} />
-          </label>
-          <label className="field vertical">
-            <span>业务线</span>
-            <select value={filters.businessLine} onChange={(event) => updateFilter("businessLine", event.target.value)}>
-              <option value="all">全部业务线</option>
-              <option>增长</option>
-              <option>会员</option>
-              <option>推荐</option>
-              <option>交易</option>
-              <option>搜索</option>
-            </select>
-          </label>
-          <label className="field vertical">
-            <span>状态</span>
-            <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-              <option value="all">全部状态</option>
-              <option value="running">运行中</option>
-              <option value="paused">已暂停</option>
-              <option value="ended">已结束</option>
-            </select>
-          </label>
-          <label className="field vertical ledger-owner-field">
-            <span>负责人</span>
-            <input data-ledger-filter="owner" value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)} list="owner-options" />
-          </label>
+            <label className="field vertical ledger-keyword-field">
+              <span className="sr-only">实验 ID / 名称</span>
+              <input data-ledger-filter="keyword" value={filters.keyword} onChange={(event) => updateFilter("keyword", event.target.value)} placeholder="实验 ID / 名称" />
+            </label>
+            <label className="field vertical ledger-select-field">
+              <span className="sr-only">业务线</span>
+              <select value={filters.businessLine} onChange={(event) => updateFilter("businessLine", event.target.value)}>
+                <option value="all">业务线</option>
+                <option>增长</option>
+                <option>会员</option>
+                <option>推荐</option>
+                <option>交易</option>
+                <option>搜索</option>
+              </select>
+            </label>
+            <label className="field vertical ledger-select-field">
+              <span className="sr-only">状态</span>
+              <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+                <option value="all">状态</option>
+                <option value="running">运行中</option>
+                <option value="paused">已暂停</option>
+                <option value="ended">已结束</option>
+              </select>
+            </label>
+            <label className="field vertical ledger-owner-field">
+              <span className="sr-only">负责人</span>
+              <input data-ledger-filter="owner" value={filters.owner} onChange={(event) => updateFilter("owner", event.target.value)} list="owner-options" placeholder="负责人" />
+            </label>
           </div>
           <div className="ledger-filter-actions">
             <button className="ghost-button" data-open-filter-dialog type="button" onClick={openFilterDialog} aria-haspopup="dialog">
-              <SlidersHorizontal size={16} /> 更多筛选{filters.sourcePlatformKeyword ? " · 1" : ""}
+              <SlidersHorizontal size={16} /> 筛选
             </button>
-            <button className="primary-button" type="button" onClick={() => showToast(`已刷新实验清单，共 ${filteredExperiments.length} 条`)}>
-              <Search size={16} /> 查询
-            </button>
-            <button className="ghost-button" type="button" onClick={resetLedgerFilters}>
+            <button className="ghost-button" data-reset-ledger type="button" onClick={resetLedgerFilters}>
               <RefreshCcw size={16} /> 重置
+            </button>
+            <button className="primary-button" data-open-create-experiment type="button" onClick={openCreateExperimentDialog} aria-haspopup="dialog">
+              <Plus size={16} /> 新建实验
+            </button>
+            <button className="ghost-button" data-export-ledger type="button" onClick={() => showToast(`已准备导出 ${filteredExperiments.length} 条实验结果`)}>
+              <Download size={16} /> 导出
             </button>
           </div>
         </div>
@@ -2202,21 +2245,13 @@ function App() {
           ))}
         </datalist>
 
-        <div className="toolbar">
-          <div className="toolbar-left">
-            <button className="ghost-button" type="button" onClick={() => openDrawer("import")}>
-              <Upload size={16} /> 提交导入
+        {roleView === "admin" ? (
+          <div className="toolbar ledger-admin-toolbar">
+            <button className="ghost-button" type="button" onClick={() => navigateToTab("importReview")}>
+              <Database size={16} /> 导入审核
             </button>
-            {roleView === "admin" ? (
-              <button className="ghost-button" type="button" onClick={() => navigateToTab("importReview")}>
-                <Database size={16} /> 导入审核
-              </button>
-            ) : null}
           </div>
-          <button className="ghost-button" type="button" onClick={() => showToast(`已准备导出 ${filteredExperiments.length} 条实验结果`)}>
-            <Download size={16} /> 导出结果
-          </button>
-        </div>
+        ) : null}
 
         <div className="table-wrap" data-page-core="experiment-ledger">
           <table className="data-table sticky-actions ledger-table">

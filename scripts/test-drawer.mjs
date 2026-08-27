@@ -20,6 +20,10 @@ const detailThenFilters = pushDrawer(detailOnly, "filters");
 assert.deepEqual(detailThenFilters, ["detail", "filters"], "opening filters must layer over the active page or drawer");
 assert.deepEqual(popDrawer(detailThenFilters), { stack: ["detail"], closed: "filters", active: "detail" }, "closing filters must restore the prior drawer");
 
+const createThenImport = pushDrawer(["create"], "import");
+assert.deepEqual(createThenImport, ["create", "import"], "upload import must be able to layer over the creation choice dialog");
+assert.deepEqual(popDrawer(createThenImport), { stack: ["create"], closed: "import", active: "create" }, "closing import must restore the creation choice dialog");
+
 const empty = popDrawer([]);
 assert.deepEqual(empty, { stack: [], closed: null, active: null }, "empty stack pop must be safe");
 

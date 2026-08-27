@@ -505,19 +505,22 @@ async function run() {
     await expectPageContract("list", "实验清单", "experiment-ledger");
     pass("invalid route normalizes to #list");
 
-    await physicalClick("[data-home-create-experiment]");
-    await waitFor("new experiment opens evaluation", () => evaluate(`location.hash === "#evaluate"`));
+    await physicalClick("[data-open-create-experiment]");
+    await waitFor("new experiment method dialog", () => evaluate(`document.querySelector("[data-create-experiment-dialog]")?.getAttribute("aria-modal") === "true"`));
+    await physicalClick('[data-create-method="direct"]');
+    await waitFor("direct new experiment opens evaluation", () => evaluate(`location.hash === "#evaluate"`));
     await expectPageContract("evaluate", "实验评估", "sample-planning");
-    pass("new experiment routes to the existing evaluation workbench");
+    pass("new experiment offers direct creation through the existing evaluation workbench");
 
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] [data-filter-draft]").length`), 0, "Source filtering must not appear in the default filter row.");
-    assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="keyword"]')?.getAttribute("placeholder")`), null, "Ledger keyword input must not show placeholder text.");
+    assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="keyword"]')?.getAttribute("placeholder")`), "实验 ID / 名称", "Ledger keyword input must display its filter name.");
     assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="owner"]')?.getAttribute("list")`), "owner-options", "Ledger owner filter must offer known-owner suggestions.");
+    assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-filter] input, [data-ledger-default-filters] select").length`), 4, "Ledger toolbar must keep four inline filter controls.");
     await typeText('[data-ledger-filter="owner"]', "陈");
     await waitFor("owner fuzzy filter", () => evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length === 1`));
-    await physicalClick(`[data-page-id="list"] .ledger-filter-actions .ghost-button:last-child`);
+    await physicalClick("[data-reset-ledger]");
     await waitFor("owner filter reset", () => evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length === 5`));
     await physicalClick("[data-open-filter-dialog]");
     await waitFor("filter dialog", () => evaluate(`document.querySelector("[data-filter-dialog]")?.getAttribute("aria-modal") === "true"`));
@@ -529,9 +532,18 @@ async function run() {
     await physicalClick("[data-open-filter-dialog]");
     await typeText('[data-filter-draft="sourcePlatformKeyword"]', "手动补录");
     await physicalClick("[data-filter-dialog] .primary-button");
-    await waitFor("filter dialog applies", () => evaluate(`!document.querySelector("[data-filter-dialog]") && document.querySelector("[data-open-filter-dialog]")?.textContent.includes("1")`));
+    await waitFor("filter dialog applies", () => evaluate(`!document.querySelector("[data-filter-dialog]")`));
     assert.equal(await evaluate(`document.querySelectorAll("[data-page-id=\"list\"] .ledger-table tbody tr").length`), 1, "Applied source filter must narrow the ledger.");
     pass("more filters supports discard and explicit apply");
+
+    await physicalClick("[data-open-create-experiment]");
+    await waitFor("new experiment import option", () => evaluate(`Boolean(document.querySelector("[data-create-experiment-dialog]"))`));
+    await physicalClick('[data-create-method="import"]');
+    await waitFor("upload import reuses import drawer", () => evaluate(`document.querySelector(".import-drawer")?.getAttribute("aria-modal") === "true"`));
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
+    pass("new experiment can route to the existing upload import flow");
 
     for (const [targetTab, targetBreadcrumb] of expectedStageTargets) {
       await openUrl(`${distUrl}#evaluate`);

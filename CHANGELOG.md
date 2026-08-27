@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-08-27 - Single-Row Ledger Toolbar (v0.2.2)
+
+Changed:
+
+- Moved the default ledger filter names into their controls, widened the ID/name and owner inputs, and removed above-field labels.
+- Replaced the query action with immediate filtering; placed filter, reset, blue new experiment, and export actions on the same toolbar row.
+- Replaced the direct new-experiment jump with a choice dialog that reuses the existing upload-import drawer or the existing experiment-evaluation workbench.
+- Added regression coverage for the creation-method dialog, upload-import path, responsive toolbar layout, and updated filter contracts.
+
 ## 2026-08-27 - Compact Ledger Filters (v0.2.1)
 
 Changed:
