@@ -26,6 +26,7 @@ const storage = {
 };
 
 const draft = createDefaultDraft();
+assert.equal(draft.recordId, "");
 assert.equal(normalizeCreateStep("seed"), "seed");
 assert.equal(normalizeCreateStep("unknown"), "basic");
 assert.equal(createHash("validation"), "#create?step=validation");
@@ -62,6 +63,7 @@ assert.deepEqual(rankCandidateResults([
 assert.equal(saveCreateDraft(completedBasic, storage), true);
 assert.equal(storage.getItem(CREATE_DRAFT_STORAGE_KEY) !== null, true);
 assert.equal(loadCreateDraft(storage)?.savedStep, "sample");
+assert.equal(loadCreateDraft(storage)?.recordId, "");
 clearCreateDraft(storage);
 assert.equal(loadCreateDraft(storage), null);
 
@@ -73,6 +75,7 @@ delete legacyDraft.sample.splitGroups;
 storage.setItem(CREATE_DRAFT_STORAGE_KEY, JSON.stringify(legacyDraft));
 const migratedDraft = loadCreateDraft(storage);
 assert.equal(migratedDraft?.basic.domain, "推荐");
+assert.equal(migratedDraft?.recordId, "");
 assert.deepEqual(migratedDraft?.sample.splitGroups.map((group) => group.ratio), [50, 50]);
 assert.equal(migratedDraft?.seed.generated.domain, "推荐");
 

@@ -82,7 +82,7 @@ type Tab =
   | "governance"
   | "permission";
 type RoleView = "user" | "admin";
-type ExperimentStatus = "running" | "paused" | "ended";
+type ExperimentStatus = "draft" | "running" | "paused" | "ended";
 type QualityStatus = "passed" | "warning" | "critical";
 type SourceType = "平台接入" | "表格导入" | "手动补录";
 type CheckTargetType = "当前实验" | "候选 seed" | "批量 seed";
@@ -294,6 +294,7 @@ interface ExperimentRecord {
   importBatchId: string;
   checkSnapshot: CheckSnapshot;
   auditEvents: Array<{ time: string; operator: string; action: string }>;
+  createDraft?: CreateExperimentDraft;
 }
 
 const experiments: ExperimentRecord[] = [
@@ -600,6 +601,7 @@ function tabFromHash(hash = typeof window !== "undefined" ? window.location.hash
 }
 
 const statusText: Record<ExperimentStatus, string> = {
+  draft: "草稿",
   running: "运行中",
   paused: "已暂停",
   ended: "已结束",
@@ -1338,22 +1340,36 @@ function App() {
   }
 
   function openCreateFlow() {
-    const storedDraft = loadCreateDraft();
-    const nextDraft = storedDraft ?? createDraft;
+    const nextDraft = createDefaultDraft();
+    clearCreateDraft();
     setCreateDraft(nextDraft);
-    navigateToCreateStep(nextDraft.savedStep);
-    showToast(storedDraft ? "已恢复最近一次保存的新建实验草稿" : "开始新增实验");
+    navigateToCreateStep("basic");
+    showToast("已开启新的实验登记");
   }
 
   function saveCreateProgress(step = createStep) {
-    const nextDraft = { ...createDraft, savedStep: step };
+    const draft = { ...createDraft, savedStep: step };
+    const record = createLocalExperimentRecord(draft, "draft");
+    const nextDraft = { ...draft, recordId: record.id };
+    const nextRecord = { ...record, createDraft: nextDraft };
     setCreateDraft(nextDraft);
     if (!saveCreateDraft(nextDraft)) {
       showToast("本机草稿保存失败，请检查浏览器存储权限");
       return false;
     }
-    showToast("新建实验草稿已保存");
+    setCreatedExperiments((current) => {
+      const exists = current.some((item) => item.id === nextRecord.id);
+      const nextRecords = exists ? current.map((item) => item.id === nextRecord.id ? nextRecord : item) : [nextRecord, ...current];
+      saveCreatedRecords(nextRecords);
+      return nextRecords;
+    });
     return true;
+  }
+
+  function saveCreateToLedger() {
+    if (!saveCreateProgress()) return;
+    navigateToTab("list");
+    showToast("已保存到实验清单，可在草稿状态下继续编辑");
   }
 
   function validateAndAdvanceCreateStep() {
@@ -1437,39 +1453,51 @@ function App() {
     showToast(hasPassedCandidate ? `已在第 ${generated?.attempts} 轮生成含通过结果的随机数种子` : "已自动尝试 20 轮，暂未生成通过结果，请调整配置后重试");
   }
 
-  function createLocalExperimentRecord(): ExperimentRecord {
+  function createLocalExperimentRecord(draft: CreateExperimentDraft, status: ExperimentStatus): ExperimentRecord {
     const now = new Date();
-    const id = `LOCAL-${now.toISOString().slice(2, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-4)}`;
+    const id = draft.recordId || `LOCAL-${now.toISOString().slice(2, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-4)}`;
     const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
     return {
       id,
-      name: createDraft.basic.name.trim(),
-      businessLine: createDraft.basic.businessLine,
+      name: draft.basic.name.trim() || "未命名草稿",
+      businessLine: draft.basic.businessLine,
       sourcePlatform: "直接新增",
       sourceType: "平台接入",
-      owner: createDraft.basic.owner.trim(),
+      owner: draft.basic.owner.trim() || "未分配",
       relationship: "独立实验",
       parentExperiment: "-",
-      trafficLayer: `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase(),
-      userGroup: createDraft.seed.sampleUnit,
+      trafficLayer: `${draft.basic.domain}_${draft.seed.sampleUnit}`.toLowerCase(),
+      userGroup: draft.seed.sampleUnit,
       rollout: 0,
-      status: "paused",
-      quality: "passed",
+      status,
+      quality: status === "draft" ? "warning" : "passed",
       startTime: timestamp,
       lastUpdated: timestamp,
-      coreMetric: createDraft.basic.coreMetric.trim(),
-      guardrailMetric: createDraft.basic.guardrailMetric.trim(),
+      coreMetric: draft.basic.coreMetric.trim() || "待填写",
+      guardrailMetric: draft.basic.guardrailMetric.trim() || "待填写",
       stageStatus: "实验前",
-      metricConfig: { metricType: "转化率", baseline: createDraft.sample.baseline, mde: createDraft.sample.mde, confidence: createDraft.sample.confidence, power: createDraft.sample.power, dailyTraffic: createDraft.sample.dailyTraffic },
-      sampleDefinition: { domain: createDraft.basic.domain, source: "历史 A/A", window: "近 14 天", unit: createDraft.seed.sampleUnit },
-      reviewSummary: { conclusion: "已完成本地新增向导与上线前检查。", tags: ["直接新增", createDraft.seed.selectedSeed, createDraft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: "等待启动与放量配置" },
+      metricConfig: { metricType: "转化率", baseline: draft.sample.baseline, mde: draft.sample.mde, confidence: draft.sample.confidence, power: draft.sample.power, dailyTraffic: draft.sample.dailyTraffic },
+      sampleDefinition: { domain: draft.basic.domain, source: "历史 A/A", window: "近 14 天", unit: draft.seed.sampleUnit },
+      reviewSummary: { conclusion: status === "draft" ? "本地草稿，待继续填写和完成校验。" : "已完成本地新增向导与上线前检查。", tags: [status === "draft" ? "草稿" : "直接新增", draft.seed.selectedSeed || "未选择种子", draft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: status === "draft" ? "编辑草稿后继续" : "等待启动与放量配置" },
       alertStatus: "info",
       rolloutEvents: [],
       sourceQuality: "本地创建",
       importBatchId: "-",
-      checkSnapshot: { target: createDraft.seed.selectedSeed, preAA: "已通过", uniformity: "已通过", orthogonality: "已通过", sampleScope: `${createDraft.basic.domain} · ${createDraft.seed.sampleUnit}`, updatedAt: timestamp },
-      auditEvents: [{ time: timestamp, operator: createDraft.basic.owner.trim(), action: "通过新增实验向导创建" }],
+      checkSnapshot: { target: draft.seed.selectedSeed || "待生成", preAA: status === "draft" ? "待校验" : "已通过", uniformity: status === "draft" ? "待校验" : "已通过", orthogonality: status === "draft" ? "待校验" : "已通过", sampleScope: `${draft.basic.domain} · ${draft.seed.sampleUnit}`, updatedAt: timestamp },
+      auditEvents: [{ time: timestamp, operator: draft.basic.owner.trim() || "当前用户", action: status === "draft" ? "保存新增实验草稿" : "完成新增实验创建" }],
     };
+  }
+
+  function editCreateDraft(record: ExperimentRecord) {
+    if (!record.createDraft) {
+      showToast("该草稿缺少可恢复的新建信息");
+      return;
+    }
+    const draft = { ...record.createDraft, recordId: record.id };
+    setCreateDraft(draft);
+    saveCreateDraft(draft);
+    navigateToCreateStep(draft.savedStep);
+    showToast(`正在编辑草稿：${record.name}`);
   }
 
   function completeCreateExperiment() {
@@ -1478,10 +1506,13 @@ function App() {
       showToast(errors.length ? `请补充：${errors[0]}` : "请先选择并带入一个候选种子");
       return;
     }
-    const record = createLocalExperimentRecord();
-    const nextRecords = [record, ...createdExperiments];
-    setCreatedExperiments(nextRecords);
-    saveCreatedRecords(nextRecords);
+    const record = createLocalExperimentRecord({ ...createDraft, savedStep: "validation" }, "paused");
+    setCreatedExperiments((current) => {
+      const exists = current.some((item) => item.id === record.id);
+      const nextRecords = exists ? current.map((item) => item.id === record.id ? record : item) : [record, ...current];
+      saveCreatedRecords(nextRecords);
+      return nextRecords;
+    });
     clearCreateDraft();
     setCreateDraft(createDefaultDraft());
     navigateToTab("list");
@@ -2441,7 +2472,7 @@ function App() {
     const stepIndex = ["basic", "sample", "seed", "validation"].indexOf(createStep);
     const renderFooter = () => (
       <div className="create-flow-footer">
-        <button className="ghost-button" data-create-save type="button" onClick={() => saveCreateProgress()}><FileCheck2 size={16} /> 保存</button>
+        <button className="ghost-button" data-create-save type="button" onClick={saveCreateToLedger}><FileCheck2 size={16} /> 保存</button>
         <button className="ghost-button" data-create-previous type="button" disabled={!previousStep[createStep]} onClick={() => previousStep[createStep] && navigateToCreateStep(previousStep[createStep]!)}>上一步</button>
         {createStep === "basic" || createStep === "sample" ? <button className="primary-button" data-create-next type="button" onClick={validateAndAdvanceCreateStep}>下一步</button> : null}
         {createStep === "validation" ? <button className="primary-button" data-create-complete type="button" onClick={completeCreateExperiment}>完成创建</button> : null}
@@ -2576,6 +2607,7 @@ function App() {
               <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
                 <option value="all">状态</option>
                 <option value="running">运行中</option>
+                <option value="draft">草稿</option>
                 <option value="paused">已暂停</option>
                 <option value="ended">已结束</option>
               </select>
@@ -2678,6 +2710,7 @@ function App() {
                   </td>
                   <td>
                     <div className="row-actions">
+                      {item.status === "draft" ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                       <button type="button" onClick={() => openDetail(item)}>查看详情</button>
                       <button
                         type="button"

@@ -68,6 +68,7 @@ export function normalizeCreateStep(value) {
 export function createDefaultDraft() {
   return {
     savedStep: "basic",
+    recordId: "",
     basic: {
       name: "",
       businessLine: "增长",
@@ -161,7 +162,7 @@ export function loadCreateDraft(storage = globalThis.localStorage) {
     const generated = parsed.seed.generated && typeof parsed.seed.generated === "object"
       ? { ...defaults.seed.generated, ...parsed.seed.generated, splitGroups: normalizeSplitGroups(parsed.seed.generated.splitGroups) }
       : { ...defaults.seed.generated, domain: basic.domain, sampleUnit: parsed.seed.sampleUnit || defaults.seed.sampleUnit, candidateCount: parsed.seed.candidateCount || defaults.seed.candidateCount, template: parsed.seed.template || "", splitGroups };
-    return { ...defaults, ...parsed, savedStep: normalizeCreateStep(parsed.savedStep), basic, sample: { ...defaults.sample, ...parsed.sample, splitGroups }, seed: { ...defaults.seed, ...parsed.seed, generated }, validation: { ...defaults.validation, ...parsed.validation } };
+    return { ...defaults, ...parsed, recordId: typeof parsed.recordId === "string" ? parsed.recordId : "", savedStep: normalizeCreateStep(parsed.savedStep), basic, sample: { ...defaults.sample, ...parsed.sample, splitGroups }, seed: { ...defaults.seed, ...parsed.seed, generated }, validation: { ...defaults.validation, ...parsed.validation } };
   } catch {
     return null;
   }

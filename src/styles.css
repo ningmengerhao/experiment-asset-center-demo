@@ -1104,6 +1104,10 @@ textarea:focus {
   background: var(--success);
 }
 
+.status-dot.draft i {
+  background: var(--warning);
+}
+
 .status-dot.paused i {
   background: var(--warning);
 }

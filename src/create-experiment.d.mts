@@ -4,6 +4,7 @@ export interface GeneratedSeedConfig { key: string; domain: string; sampleUnit: 
 
 export interface CreateExperimentDraft {
   savedStep: CreateStep;
+  recordId: string;
   basic: { name: string; businessLine: string; domain: string; owner: string; coreMetric: string; guardrailMetric: string; hypothesis: string };
   sample: { baseline: number; mde: number; confidence: number; power: number; splitGroups: CreateSplitGroup[]; dailyTraffic: number; identityCoverage: number; maxDays: number; stableDays: number; guardrailCount: number; businessValue: number };
   seed: { sampleUnit: string; candidateCount: number; template: string; selectedSeed: string; generated: GeneratedSeedConfig };

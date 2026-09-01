@@ -2,6 +2,16 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-01 - Ledger Drafts for New Experiments (v0.3.3)
+
+Changed:
+
+- Saving any creation-wizard step now writes or updates one browser-local experiment-ledger record with status `草稿`.
+- Added a draft-only `编辑` action that restores the complete saved wizard state at its latest step for continued editing.
+- Completing an edited draft replaces that same ledger entry with the final local experiment record instead of adding a duplicate.
+- Starting a new experiment now always resets the wizard to a blank form and leaves saved ledger drafts available only through their explicit edit actions.
+- Added logic, UI, browser-flow, and responsive verification for saving, editing, finalizing, and restarting drafts.
+
 ## 2026-08-27 - Short Seed Auto Refresh (v0.3.2)
 
 Changed:

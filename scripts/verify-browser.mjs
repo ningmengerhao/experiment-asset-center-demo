@@ -527,6 +527,10 @@ async function run() {
     await typeText('[data-create-basic="coreMetric"]', "首购转化率");
     await typeText('[data-create-basic="guardrailMetric"]', "投诉率");
     await typeText('[data-create-basic="hypothesis"]', "新版引导可以提升首次购买转化。");
+    await physicalClick("[data-create-save]");
+    await waitFor("saved draft returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("草稿") && Boolean(document.querySelector("[data-edit-create-draft]"))`));
+    await physicalClick("[data-edit-create-draft]");
+    await waitFor("draft edit restores basic information", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === "新增首购引导"`));
     await physicalClick("[data-create-next]");
     await waitFor("basic step saves and advances", () => evaluate(`location.hash === "#create?step=sample" && JSON.parse(localStorage.getItem("experiment-asset-create-draft-v1"))?.savedStep === "sample"`));
     assert.equal(await evaluate(`document.querySelectorAll("[data-create-split-config] [data-create-split-ratio]").length`), 2, "Sample evaluation must start with two split groups.");
@@ -553,8 +557,12 @@ async function run() {
     assert.equal(await evaluate(`document.querySelectorAll(".create-validation-context input[disabled]")[1]?.value.includes("A:70% B:30%")`), true, "Validation must retain the selected split ratio.");
     await physicalClick("[data-create-complete]");
     await waitFor("wizard completion returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("新增首购引导")`));
+    assert.equal(await evaluate(`document.body.textContent.includes("新增首购引导") && !document.body.textContent.includes("草稿")`), true, "Completing an edited draft must replace the draft ledger record.");
+    await physicalClick("[data-open-create-experiment]");
+    await physicalClick('[data-create-method="direct"]');
+    await waitFor("new experiment starts blank", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === ""`));
     await evaluate("localStorage.clear(); sessionStorage.clear()");
-    pass("new experiment uses a hidden wizard with domain-owned split ratios and regenerated sorted seeds");
+    pass("new experiment saves editable ledger drafts and always opens a fresh wizard");
 
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");
