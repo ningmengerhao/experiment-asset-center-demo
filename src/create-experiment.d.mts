@@ -18,6 +18,10 @@ export const DEFAULT_SPLIT_GROUPS: CreateSplitGroup[];
 export function normalizeSplitGroups(value: unknown): CreateSplitGroup[];
 export function validateSplitGroups(value: unknown): string[];
 export function calculateSplitSamplePlan(perGroup: number, value: unknown): { total: number; minimumRatio: number; groups: Array<CreateSplitGroup & { samples: number }> };
+export interface CreateFeasibilityDimension { label: string; status: "passed" | "warning" | "critical"; detail: string }
+export interface CreateSampleAssessment { perGroup: number; total: number; days: number; periodStatus: "passed" | "warning" | "critical"; splitTotal: number; splitErrors: string[]; splitMessage: string; splitPlan: { total: number; minimumRatio: number; groups: Array<CreateSplitGroup & { samples: number }> }; recommendation: { label: string; advice: string }; dimensions: CreateFeasibilityDimension[] }
+export function calculateCreateSampleAssessment(sample: CreateExperimentDraft["sample"]): CreateSampleAssessment;
+export function isSeedGenerationCurrent(draft: CreateExperimentDraft): boolean;
 export function rankCandidateResults<T extends { quality: "passed" | "warning" | "critical"; score: number; seed: string }>(candidates: T[]): T[];
 export function createShortSeedSuffix(generationKey: unknown, index: number): string;
 export function normalizeCreateStep(value: unknown): CreateStep;

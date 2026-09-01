@@ -44,6 +44,9 @@ assert.equal(parsed.context?.evidenceFocus, context.evidenceFocus);
 
 const invalidLocationCases = [
   ["invalid route", "#invalid-route?<img src=x onerror=alert(1)>"],
+  ["removed evaluation route", "#evaluate"],
+  ["removed split route", "#seed"],
+  ["removed validation route", "#check"],
   ["invalid query encoding", "#investigate?experiment=%E0%A4%A"],
   ["dangerous experiment", "#investigate?experiment=EXP%3Cscript%3E"],
   ["dangerous alert", "#investigate?experiment=EXP-240611-017&alert=ALT%3Cscript%3E"],

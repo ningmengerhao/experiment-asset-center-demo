@@ -150,7 +150,7 @@ assert.match(app, /className="rollout-timeline"/, "React Task 4: rollout needs a
 assert.match(app, /const detailEvidence/, "React Task 4: detail drawer must derive scoped evidence");
 assert.match(app, /navigateWithInvestigation\("lineage", "relationship"\)/, "React Task 4: relationship focus must preserve context");
 assert.match(app, /navigateWithInvestigation\("rollout", "rollout"\)/, "React Task 4: rollout focus must preserve context");
-assert.match(app, /navigateWithInvestigation\("check", "validation"\)/, "React Task 4: validation focus must preserve context");
+assert.match(app, /校验快照/, "React Task 4: validation evidence must remain available as a snapshot");
 assert.match(css, /\.rollout-timeline/, "CSS Task 4: rollout timeline styles missing");
 assert.match(css, /\.relationship-map/, "CSS Task 4: relationship map styles missing");
 

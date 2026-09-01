@@ -2,6 +2,17 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-01 - Consolidated Experiment Creation (v0.4.0)
+
+Changed:
+
+- Kept creation saves in the current wizard step while persisting editable browser-local ledger drafts; starting a new experiment always opens a blank flow.
+- Added real-time split-total feedback, minimum-group sample sizing, maximum-cycle red/yellow warnings, and data-linked five-dimension feasibility assessment.
+- Reworked random seed generation into a compact configuration summary and single-seed radio selection followed by an explicit next step; generation attempts remain internal.
+- Replaced manual validation scope controls with compact inline checkboxes.
+- Removed the legacy experiment evaluation, traffic split, and pre-launch check pages; their old hashes now resolve to the ledger, historical validation is exposed through experiment detail snapshots, and seed rollout history now belongs under experiment management.
+- Updated permission wording, documentation, pure logic, UI structure, routing, and browser regression coverage for the consolidated workflow.
+
 ## 2026-09-01 - Ledger Drafts for New Experiments (v0.3.3)
 
 Changed:

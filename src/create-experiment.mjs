@@ -44,6 +44,50 @@ export function calculateSplitSamplePlan(perGroup, value) {
   return { total, minimumRatio, groups: allocated.map(({ raw: _raw, ...group }) => group) };
 }
 
+export function calculateCreateSampleAssessment(sample) {
+  const baseline = Number(sample?.baseline);
+  const mde = Number(sample?.mde);
+  const confidence = Number(sample?.confidence);
+  const power = Number(sample?.power);
+  const dailyTraffic = Number(sample?.dailyTraffic);
+  const maxDays = Number(sample?.maxDays);
+  const stableDays = Number(sample?.stableDays);
+  const identityCoverage = Number(sample?.identityCoverage);
+  const guardrailCount = Number(sample?.guardrailCount);
+  const businessValue = Number(sample?.businessValue);
+  const splitGroups = normalizeSplitGroups(sample?.splitGroups);
+  const splitTotal = splitGroups.reduce((total, group) => total + group.ratio, 0);
+  const splitErrors = validateSplitGroups(splitGroups);
+  const zAlpha = confidence === 99 ? 2.576 : confidence === 90 ? 1.645 : 1.96;
+  const zBeta = power === 95 ? 1.64 : power === 90 ? 1.28 : 0.84;
+  const perGroup = Math.ceil((2 * (zAlpha + zBeta) ** 2 * (baseline / 100) * (1 - baseline / 100)) / Math.max(0.0000001, (mde / 100) ** 2));
+  const splitPlan = calculateSplitSamplePlan(perGroup, splitGroups);
+  const days = Math.max(1, Math.ceil(splitPlan.total / Math.max(1, dailyTraffic)));
+  const periodStatus = days > maxDays ? "critical" : days > maxDays * 0.9 ? "warning" : "passed";
+  const splitMessage = splitTotal === 100 ? "合计 100%" : splitTotal < 100 ? `还差 ${100 - splitTotal}%` : `超出 ${splitTotal - 100}%`;
+  const recommendation = periodStatus === "passed"
+    ? { label: "可行性结论：周期在可接受范围内", advice: `预计 ${days} 天，不超过最长可接受周期 ${maxDays} 天。` }
+    : periodStatus === "warning"
+      ? { label: "可行性结论：接近最长可接受周期", advice: `预计 ${days} 天，已超过最长周期的 90%，建议预留流量和稳定性缓冲。` }
+      : { label: "可行性结论：预计周期超过上限", advice: `预计 ${days} 天，超过最长可接受周期 ${maxDays} 天，建议扩大客群、调整 MDE 或延长周期。` };
+  const dimensions = [
+    { label: "流量覆盖", status: identityCoverage >= 85 ? "passed" : identityCoverage >= 70 ? "warning" : "critical", detail: `身份覆盖 ${identityCoverage}%` },
+    { label: "基线稳定", status: stableDays >= days ? "passed" : stableDays >= days * 0.9 ? "warning" : "critical", detail: `历史稳定 ${stableDays} 天 / 预计周期 ${days} 天` },
+    { label: "实验污染", status: splitGroups.length <= 3 ? "passed" : "warning", detail: `${splitGroups.length} 组分流` },
+    { label: "护栏完整", status: guardrailCount >= 2 ? "passed" : "critical", detail: `已配置 ${guardrailCount} 个护栏` },
+    { label: "业务价值", status: businessValue >= mde ? "passed" : "warning", detail: `预期提升 ${businessValue}% / MDE ${mde}pp` },
+  ];
+  return { perGroup, total: splitPlan.total, days, periodStatus, splitTotal, splitErrors, splitMessage, splitPlan, recommendation, dimensions };
+}
+
+export function isSeedGenerationCurrent(draft) {
+  const generated = draft?.seed?.generated;
+  if (!generated) return false;
+  const currentRatio = (draft.sample?.splitGroups ?? []).map((group) => `${group.label}:${group.ratio}%`).join(" ");
+  const generatedRatio = (generated.splitGroups ?? []).map((group) => `${group.label}:${group.ratio}%`).join(" ");
+  return generated.domain === draft.basic?.domain && generated.sampleUnit === draft.seed?.sampleUnit && generated.candidateCount === draft.seed?.candidateCount && generated.template === draft.seed?.template && generatedRatio === currentRatio;
+}
+
 export function rankCandidateResults(candidates) {
   const rank = { passed: 0, warning: 1, critical: 2 };
   return [...candidates].sort((left, right) => (rank[left.quality] ?? 3) - (rank[right.quality] ?? 3) || right.score - left.score || left.seed.localeCompare(right.seed));

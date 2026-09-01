@@ -43,13 +43,14 @@ import {
 } from "./investigation.mjs";
 import type { EvidenceEvent, EvidenceFocus, InvestigationContext, InvestigationStatus } from "./investigation.mjs";
 import {
-  calculateSplitSamplePlan,
+  calculateCreateSampleAssessment,
   clearCreateDraft,
   createShortSeedSuffix,
   createDefaultDraft,
   createHash as createExperimentHash,
   loadCreateDraft,
   loadCreatedRecords,
+  isSeedGenerationCurrent,
   readCreateStep,
   rankCandidateResults,
   saveCreateDraft,
@@ -515,28 +516,6 @@ const navGroups: Array<{
     ],
   },
   {
-    title: "实验前",
-    role: "all",
-    items: [
-      { key: "evaluate", label: "实验评估", icon: Calculator },
-    ],
-  },
-  {
-    title: "分流阶段",
-    role: "all",
-    items: [
-      { key: "seed", label: "分流方案", icon: Dices },
-      { key: "seedHistory", label: "随机数放量历史", icon: Hash },
-    ],
-  },
-  {
-    title: "上线前",
-    role: "all",
-    items: [
-      { key: "check", label: "上线前检查", icon: FileCheck2 },
-    ],
-  },
-  {
     title: "运行中",
     role: "all",
     items: [
@@ -549,6 +528,7 @@ const navGroups: Array<{
     items: [
       { key: "lineage", label: "父子实验", icon: Network },
       { key: "rollout", label: "放量历史", icon: Clock3 },
+      { key: "seedHistory", label: "随机数放量历史", icon: Hash },
       { key: "myImports", label: "批量导入记录", icon: Upload },
     ],
   },
@@ -828,9 +808,9 @@ const initialAlertRules: AlertRuleRecord[] = [
 
 const initialPermissionProfiles: PermissionProfile[] = [
   { id: "admin", name: "管理员", description: "维护角色、规则模板与审计策略", modules: ["全部模块"], actions: ["查看", "编辑", "审核", "授权"], visibility: "全部业务域与实验", responsibleOwner: "赵晨", backupOwner: "李维", ruleThresholdRange: "可维护模板上下限" },
-  { id: "businessOwner", name: "业务负责人", description: "管理所属业务域的实验资产和负责人", modules: ["实验管理", "监控排查", "上线前检查"], actions: ["查看", "编辑元数据", "指派负责人"], visibility: "所属业务域", responsibleOwner: "陈露", backupOwner: "吴雅", ruleThresholdRange: "模板范围内调整" },
-  { id: "experimentOwner", name: "实验负责人", description: "维护自己负责实验并处理告警", modules: ["实验管理", "分流方案", "上线前检查", "监控排查"], actions: ["查看", "编辑自己实验", "启停自己规则"], visibility: "负责与协作实验", responsibleOwner: "周一帆", backupOwner: "刘昕", ruleThresholdRange: "模板范围内调整" },
-  { id: "analyst", name: "分析人员", description: "运行校验、查看脱敏指标和归因证据", modules: ["实验评估", "上线前检查", "监控排查"], actions: ["查看", "运行校验", "导出脱敏结果"], visibility: "授权业务域", responsibleOwner: "刘昕", backupOwner: "陈露", ruleThresholdRange: "只读" },
+  { id: "businessOwner", name: "业务负责人", description: "管理所属业务域的实验资产和负责人", modules: ["新增实验", "实验管理", "监控排查"], actions: ["查看", "编辑元数据", "指派负责人"], visibility: "所属业务域", responsibleOwner: "陈露", backupOwner: "吴雅", ruleThresholdRange: "模板范围内调整" },
+  { id: "experimentOwner", name: "实验负责人", description: "维护自己负责实验并处理告警", modules: ["新增实验", "实验管理", "监控排查"], actions: ["查看", "编辑自己实验", "启停自己规则"], visibility: "负责与协作实验", responsibleOwner: "周一帆", backupOwner: "刘昕", ruleThresholdRange: "模板范围内调整" },
+  { id: "analyst", name: "分析人员", description: "查看脱敏指标和归因证据", modules: ["实验管理", "监控排查"], actions: ["查看", "导出脱敏结果"], visibility: "授权业务域", responsibleOwner: "刘昕", backupOwner: "陈露", ruleThresholdRange: "只读" },
   { id: "viewer", name: "只读用户", description: "查看授权范围内的实验资产", modules: ["实验清单", "父子实验", "放量历史"], actions: ["查看"], visibility: "显式授权实验", responsibleOwner: "吴雅", backupOwner: "-", ruleThresholdRange: "只读" },
 ];
 
@@ -1277,7 +1257,7 @@ function App() {
       .filter((row, index, array) => array.findIndex((item) => item.seed === row.seed) === index)
       .filter((row) => !keyword || row.seed.toLowerCase().includes(keyword))
       .slice(0, 3)
-      .map((row) => ({ type: "Seed 记录", title: row.seed, meta: row.meta, action: () => { setSelectedSeed(row.seed); navigateToTab("seed"); } }));
+      .map((row) => ({ type: "Seed 记录", title: row.seed, meta: row.meta, action: () => navigateToTab("seedHistory") }));
     return [...experimentResults, ...rolloutResults, ...relationResults, ...sourceResults, ...seedResults].slice(0, 10);
   }, [globalSearchKeyword, selectedSeed, investigationContext]);
 
@@ -1368,14 +1348,26 @@ function App() {
 
   function saveCreateToLedger() {
     if (!saveCreateProgress()) return;
-    navigateToTab("list");
-    showToast("已保存到实验清单，可在草稿状态下继续编辑");
+    showToast("已保存到实验清单草稿，可继续当前编辑");
   }
 
   function validateAndAdvanceCreateStep() {
     const errors = validateCreateStep(createDraft, createStep);
     if (errors.length) {
       showToast(`请补充：${errors[0]}`);
+      return;
+    }
+    if (createStep === "seed") {
+      if (!isSeedGenerationCurrent(createDraft)) {
+        showToast("生成配置已修改，请重新生成随机数种子");
+        return;
+      }
+      if (!createDraft.seed.selectedSeed) {
+        showToast("请选择一个随机数种子");
+        return;
+      }
+      if (!saveCreateProgress("validation")) return;
+      navigateToCreateStep("validation");
       return;
     }
     const nextStep = createStep === "basic" ? "sample" : createStep === "sample" ? "seed" : null;
@@ -1450,7 +1442,7 @@ function App() {
         generated: generated ?? current.seed.generated,
       },
     }));
-    showToast(hasPassedCandidate ? `已在第 ${generated?.attempts} 轮生成含通过结果的随机数种子` : "已自动尝试 20 轮，暂未生成通过结果，请调整配置后重试");
+    showToast(hasPassedCandidate ? "已生成包含通过结果的随机数种子" : "未生成通过结果，请调整配置后重试");
   }
 
   function createLocalExperimentRecord(draft: CreateExperimentDraft, status: ExperimentStatus): ExperimentRecord {
@@ -2005,14 +1997,11 @@ function App() {
             </section>
           ) : null}
           {activeTab === "create" && renderCreateFlow()}
-          {activeTab === "evaluate" && renderEvaluation()}
           {activeTab === "list" && renderLedger()}
           {activeTab === "investigate" && renderInvestigation()}
           {activeTab === "lineage" && renderLineage()}
           {activeTab === "rollout" && renderRollout()}
           {activeTab === "seedHistory" && renderSeedHistory()}
-          {activeTab === "seed" && renderSeedTool()}
-          {activeTab === "check" && renderTestTool()}
           {activeTab === "myImports" && renderMyImports()}
           {roleView === "admin" && activeTab === "importReview" && renderImportReview()}
           {roleView === "admin" && activeTab === "governance" && renderGovernance()}
@@ -2086,12 +2075,7 @@ function App() {
                 if (investigationContext?.caseId && investigationContext.experimentId === selected.id) navigateWithInvestigation("rollout", "rollout");
                 else startInvestigation(selected.id, { tab: "rollout", entrySource: "detail", focus: "rollout" });
               }}>放量证据</button>
-              <button type="button" className="ghost-button" onClick={() => {
-                closeTopmostDrawer();
-                setCheckTarget((current) => ({ ...current, experimentId: selected.id }));
-                if (investigationContext?.caseId && investigationContext.experimentId === selected.id) navigateWithInvestigation("check", "validation");
-                else startInvestigation(selected.id, { tab: "check", entrySource: "detail", focus: "validation" });
-              }}>校验证据</button>
+              <button type="button" className="ghost-button" onClick={() => showToast("当前详情已展示最近校验快照")}>校验快照</button>
             </div>
             <section className="drawer-section">
               <h3>基础信息</h3>
@@ -2424,18 +2408,13 @@ function App() {
   function renderCreateFlow() {
     const sample = createDraft.sample;
     const splitGroups = sample.splitGroups;
-    const zAlpha = sample.confidence === 99 ? 2.576 : sample.confidence === 90 ? 1.645 : 1.96;
-    const zBeta = sample.power === 95 ? 1.64 : sample.power === 90 ? 1.28 : 0.84;
-    const perGroup = Math.ceil((2 * (zAlpha + zBeta) ** 2 * (sample.baseline / 100) * (1 - sample.baseline / 100)) / Math.max(0.0000001, (sample.mde / 100) ** 2));
-    const splitPlan = calculateSplitSamplePlan(perGroup, splitGroups);
-    const total = splitPlan.total;
-    const days = Math.max(1, Math.ceil(total / Math.max(1, sample.dailyTraffic)));
-    const sampleResult = getSampleFeasibility(days);
+    const createSampleAssessment = calculateCreateSampleAssessment(sample);
+    const { perGroup, splitPlan, total, days, periodStatus, splitErrors, splitMessage, recommendation, dimensions: createFeasibilityDimensions } = createSampleAssessment;
     const generated = createDraft.seed.generated;
     const generatedSplitRatio = generated.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
     const currentSplitRatio = splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
     const seedBase = `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
-    const isGeneratedConfigCurrent = generated.domain === createDraft.basic.domain && generated.sampleUnit === createDraft.seed.sampleUnit && generated.candidateCount === createDraft.seed.candidateCount && generated.template === createDraft.seed.template && generatedSplitRatio === currentSplitRatio;
+    const isGeneratedConfigCurrent = isSeedGenerationCurrent(createDraft);
     const createSeedCandidates = buildCreateSeedCandidates(generated);
     const selectedCandidate = createSeedCandidates.find((item) => item.seed === createDraft.seed.selectedSeed) ?? createSeedCandidates[0] ?? null;
     const scopeExperiments = experiments.filter((item) => item.status === "running").filter((item) => {
@@ -2474,7 +2453,7 @@ function App() {
       <div className="create-flow-footer">
         <button className="ghost-button" data-create-save type="button" onClick={saveCreateToLedger}><FileCheck2 size={16} /> 保存</button>
         <button className="ghost-button" data-create-previous type="button" disabled={!previousStep[createStep]} onClick={() => previousStep[createStep] && navigateToCreateStep(previousStep[createStep]!)}>上一步</button>
-        {createStep === "basic" || createStep === "sample" ? <button className="primary-button" data-create-next type="button" onClick={validateAndAdvanceCreateStep}>下一步</button> : null}
+        {createStep === "basic" || createStep === "sample" || createStep === "seed" ? <button className="primary-button" data-create-next type="button" onClick={validateAndAdvanceCreateStep}>下一步</button> : null}
         {createStep === "validation" ? <button className="primary-button" data-create-complete type="button" onClick={completeCreateExperiment}>完成创建</button> : null}
       </div>
     );
@@ -2511,11 +2490,12 @@ function App() {
         {createStep === "sample" ? <>
           <Panel title="样本量与测试周期">
             <div className="create-sample-grid">
-              {defaultSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />)}
-              {createSampleExpanded ? additionalSampleFields.map((field) => <NumberField key={field.key} label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} />) : null}
+              {defaultSampleFields.map((field) => <div key={field.key} data-create-sample-field={field.key}><NumberField label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} /></div>)}
+              {createSampleExpanded ? additionalSampleFields.map((field) => <div key={field.key} data-create-sample-field={field.key}><NumberField label={field.label} value={sample[field.key]} onChange={(value) => updateCreateSample(field.key, value)} /></div>) : null}
             </div>
+            <button className="link-button create-expand-button" type="button" onClick={() => setCreateSampleExpanded((current) => !current)}>{createSampleExpanded ? "收起" : "展开"}</button>
             <section className="create-split-config" aria-label="分流比例" data-create-split-config>
-              <div className="create-split-heading"><div><h3>分流比例</h3><p>比例总和必须为 100%，最小比例组决定总样本量。</p></div><span className={splitGroups.reduce((sum, group) => sum + group.ratio, 0) === 100 ? "quality-badge passed" : "quality-badge warning"}>合计 {splitGroups.reduce((sum, group) => sum + group.ratio, 0)}%</span></div>
+              <div className="create-split-heading"><div><div className="create-split-title-row"><h3>分流比例</h3><span className={`quality-badge ${splitErrors.length ? "critical" : "passed"}`} data-create-split-total>{splitMessage}</span></div><p>比例总和必须为 100%，最小比例组决定总样本量。</p></div></div>
               <div className="create-split-groups">
                 {splitGroups.map((group, index) => <div className="create-split-group" key={group.id}>
                   <label className="field vertical"><span>实验组</span><input data-create-split-label={index} value={group.label} onChange={(event) => updateCreateSplitGroup(index, "label", event.target.value)} /></label>
@@ -2523,43 +2503,43 @@ function App() {
                   <button className="icon-button create-split-remove" type="button" aria-label={`删除 ${group.label} 组`} title={`删除 ${group.label} 组`} disabled={splitGroups.length <= 2} onClick={() => removeCreateSplitGroup(index)}><X size={16} /></button>
                 </div>)}
               </div>
+              {splitErrors.length ? <p className="create-split-validation" data-create-split-validation>{splitErrors[0]}</p> : null}
               <button className="ghost-button create-split-add" type="button" disabled={splitGroups.length >= 8} onClick={addCreateSplitGroup}><Plus size={16} /> 新增实验组</button>
             </section>
-            <button className="link-button create-expand-button" type="button" onClick={() => setCreateSampleExpanded((current) => !current)}>{createSampleExpanded ? "收起" : "展开"}</button>
           </Panel>
           <Panel title="可行性结论">
-            <div className="result-grid three-metrics"><Metric label="每组所需样本量" value={formatNumber(perGroup)} /><Metric label="总样本量" value={formatNumber(total)} /><Metric label="预计周期" value={`${days} 天`} tone={sampleResult.status === "passed" ? "success" : sampleResult.status === "warning" ? "warning" : "danger"} /></div>
+            <div className="result-grid three-metrics" data-create-sample-results><Metric label="最小组所需样本量" value={formatNumber(perGroup)} /><Metric label="总样本量" value={formatNumber(total)} /><Metric label="预计周期" value={`${days} 天`} hint={`最长可接受周期 ${sample.maxDays} 天`} tone={periodStatus === "passed" ? "success" : periodStatus === "warning" ? "warning" : "danger"} /></div>
             <div className="create-allocation-summary" data-create-allocation-summary>{splitPlan.groups.map((group) => <span key={group.id}>{group.label} 组 {group.ratio}%：{formatNumber(group.samples)}</span>)}</div>
-            <div className={`recommendation-panel ${sampleResult.status}`}><strong>{sampleResult.label}</strong><p>{sampleResult.advice}</p></div>
+            <div className={`recommendation-panel ${periodStatus}`} data-create-period-recommendation><strong>{recommendation.label}</strong><p>{recommendation.advice}</p></div>
           </Panel>
           <section className="create-suggestion-panel" aria-label="建议方案">
-            <div><strong>五维可行性评估</strong><span>流量覆盖 {sample.identityCoverage}% · 基线稳定 {sample.stableDays} 天 · 实验污染 {splitGroups.length} 组 · 护栏完整 {sample.guardrailCount} 项 · 业务价值 {sample.businessValue}%</span></div>
+            <div className="create-feasibility-live" data-create-feasibility-live><strong>五维可行性评估</strong><div>{createFeasibilityDimensions.map((item) => <section key={item.label}><span className={`quality-badge ${item.status}`}>{qualityText[item.status]}</span><b>{item.label}</b><em>{item.detail}</em></section>)}</div></div>
             <div><strong>替代方案</strong><span>扩大客群、调整 MDE、减少分组、延长周期、准实验、前后对比。</span></div>
           </section>
           {renderFooter()}
         </> : null}
 
         {createStep === "seed" ? <>
-          <Panel title="生成配置">
+          <Panel title="随机数生成配置">
             <div className="create-seed-grid">
               <label className="field vertical"><span>样本口径</span><select data-create-seed-unit value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
               <NumberField label="候选种子数量" value={createDraft.seed.candidateCount} onChange={(value) => updateCreateSeedConfig("candidateCount", value)} />
               <label className="field vertical"><span>随机数种子模板（可选）</span><input data-create-seed-template value={createDraft.seed.template} onChange={(event) => updateCreateSeedConfig("template", event.target.value)} /></label>
               <button className="primary-button create-seed-generate" data-create-seed-generate type="button" onClick={generateCreateSeeds}><Shuffle size={16} /> 生成随机数种子</button>
             </div>
-            <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span><span data-create-seed-attempts={generated.attempts}><small>自动刷新</small><strong>{generated.attempts ? `第 ${generated.attempts} 轮生成` : "尚未重新生成"}</strong></span></div>
+            <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span></div>
           </Panel>
           <Panel title="候选种子列表">
             {!isGeneratedConfigCurrent ? <p className="create-seed-stale" data-create-seed-stale>生成配置已修改，请重新生成随机数种子后再带入上线前检查。</p> : null}
-            <div className="table-wrap"><table className="data-table compact sticky-actions create-seed-table"><thead><tr><th>序号</th><th>候选种子</th><th>样本口径</th><th>分流比例</th><th>校验结果</th><th>操作</th></tr></thead><tbody>
-              {createSeedCandidates.map((item, index) => <tr key={item.seed}><td>{index + 1}</td><td className="mono" data-create-seed-value>{item.seed}</td><td>{generated.domain} · {generated.sampleUnit}</td><td>{generatedSplitRatio}</td><td><span className={`quality-badge ${item.quality}`}>{item.quality === "passed" ? "通过" : item.quality === "warning" ? "警告" : "不通过"}</span><small className="table-score">评分 {item.score}</small></td><td><button className="link-button" type="button" data-create-seed-candidate disabled={!isGeneratedConfigCurrent} onClick={() => { const nextDraft = { ...createDraft, savedStep: "validation" as CreateStep, seed: { ...createDraft.seed, selectedSeed: item.seed } }; setCreateDraft(nextDraft); if (!saveCreateDraft(nextDraft)) return showToast("本机草稿保存失败"); navigateToCreateStep("validation"); showToast("已带入上线前检查"); }}>带入上线前检查</button></td></tr>)}
+            <div className="table-wrap"><table className="data-table compact sticky-actions create-seed-table"><thead><tr><th>序号</th><th>候选种子</th><th>样本口径</th><th>分流比例</th><th>校验结果</th><th>选择随机数种子</th></tr></thead><tbody>
+              {createSeedCandidates.map((item, index) => <tr key={item.seed}><td>{index + 1}</td><td className="mono" data-create-seed-value>{item.seed}</td><td>{generated.domain} · {generated.sampleUnit}</td><td>{generatedSplitRatio}</td><td><span className={`quality-badge ${item.quality}`}>{item.quality === "passed" ? "通过" : item.quality === "warning" ? "警告" : "不通过"}</span><small className="table-score">评分 {item.score}</small></td><td><label className="create-seed-choice" title={`选择 ${item.seed}`}><input type="radio" name="create-seed-choice" data-create-seed-candidate value={item.seed} checked={createDraft.seed.selectedSeed === item.seed} disabled={!isGeneratedConfigCurrent} onChange={() => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, selectedSeed: item.seed } }))} /><span className="sr-only">选择 {item.seed}</span></label></td></tr>)}
             </tbody></table></div>
           </Panel>
           {renderFooter()}
         </> : null}
 
         {createStep === "validation" ? <>
-          <Panel title="校验范围"><div className="create-validation-context"><label className="field vertical"><span>校验范围</span><select value={createDraft.validation.scope} onChange={(event) => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, scope: event.target.value as CheckScopeMode } }))}>{(["全部运行实验", "同业务域", "同分流层", "手动指定"] as CheckScopeMode[]).map((scope) => <option key={scope}>{scope}</option>)}</select></label><label className="field vertical"><span>检验对象</span><input disabled value={`${createDraft.basic.name || "未命名实验"} · ${createDraft.seed.selectedSeed || "未选择种子"}`} /></label><label className="field vertical"><span>样本口径</span><input disabled value={`${createDraft.basic.domain} · ${currentSplitRatio} · 历史 A/A · 近 14 天 · ${createDraft.seed.sampleUnit}`} /></label></div>{createDraft.validation.scope === "手动指定" ? <div className="manual-scope-list">{experiments.filter((item) => item.status === "running").map((item) => <label key={item.id}><input type="checkbox" checked={createDraft.validation.manualExperimentIds.includes(item.id)} onChange={() => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, manualExperimentIds: current.validation.manualExperimentIds.includes(item.id) ? current.validation.manualExperimentIds.filter((id) => id !== item.id) : [...current.validation.manualExperimentIds, item.id] } }))} />{item.name}</label>)}</div> : <p className="hint">范围内运行实验 {scopeExperiments.length} 个</p>}</Panel>
+          <Panel title="校验范围"><div className="create-validation-context"><label className="field vertical"><span>校验范围</span><select value={createDraft.validation.scope} onChange={(event) => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, scope: event.target.value as CheckScopeMode } }))}>{(["全部运行实验", "同业务域", "同分流层", "手动指定"] as CheckScopeMode[]).map((scope) => <option key={scope}>{scope}</option>)}</select></label><label className="field vertical"><span>检验对象</span><input disabled value={`${createDraft.basic.name || "未命名实验"} · ${createDraft.seed.selectedSeed || "未选择种子"}`} /></label><label className="field vertical"><span>样本口径</span><input disabled value={`${createDraft.basic.domain} · ${currentSplitRatio} · 历史 A/A · 近 14 天 · ${createDraft.seed.sampleUnit}`} /></label></div>{createDraft.validation.scope === "手动指定" ? <div className="create-manual-scope-list">{experiments.filter((item) => item.status === "running").map((item) => <label key={item.id}><input type="checkbox" checked={createDraft.validation.manualExperimentIds.includes(item.id)} onChange={() => setCreateDraft((current) => ({ ...current, validation: { ...current.validation, manualExperimentIds: current.validation.manualExperimentIds.includes(item.id) ? current.validation.manualExperimentIds.filter((id) => id !== item.id) : [...current.validation.manualExperimentIds, item.id] } }))} /><span>{item.name}</span></label>)}</div> : <p className="hint">范围内运行实验 {scopeExperiments.length} 个</p>}</Panel>
           <Panel title="上线前检查结果"><div className="validation-list create-validation-list" data-create-validation-results>
             <div className={`validation-item ${preAA.passed ? "passed" : "critical"}`}><span>Pre-AA</span><strong>{preAA.passed ? "通过" : "不通过"}</strong><p>历史 A/A {preAA.passed ? "未见显著差异" : "存在显著差异"}</p><em>p = {preAA.pValue.toFixed(4)}</em></div>
             <div className={`validation-item ${uniformity.passed ? "passed" : "critical"}`}><span>均匀性</span><strong>{uniformity.passed ? "通过" : "不通过"}</strong><p>分桶偏差 {uniformity.deviation.toFixed(2)}%</p><em>p = {uniformity.pValue.toFixed(4)}</em></div>
@@ -2712,16 +2692,7 @@ function App() {
                     <div className="row-actions">
                       {item.status === "draft" ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                       <button type="button" onClick={() => openDetail(item)}>查看详情</button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCheckTarget((current) => ({ ...current, type: "当前实验", experimentId: item.id }));
-                          setActiveCheckTarget(`当前实验 / ${item.id} · ${item.name}`);
-                          navigateToTab("check");
-                        }}
-                      >
-                        校验
-                      </button>
+                      <button type="button" onClick={() => openDetail(item)}>校验快照</button>
                       <button
                         type="button"
                         onClick={() => {
@@ -3412,7 +3383,7 @@ function App() {
             <div className="current-investigation-actions">
               <button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => navigateWithInvestigation("lineage", "relationship")}>查看关系</button>
               <button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => navigateWithInvestigation("rollout", "rollout")}>查看放量</button>
-              <button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => navigateWithInvestigation("check", "validation")}>重新校验</button>
+              <button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetail(currentExperiment)}>校验快照</button>
             </div>
           </> : <p className="current-investigation-empty">从异常队列或实验详情开始排查后，这里会连续展示同一实验的关系、放量、校验与告警证据。</p>}
         </section>
@@ -3485,7 +3456,7 @@ function App() {
             <div className="monitor-queue-heading"><h2>异常队列</h2><span>上线后新增实验持续参与冲突扫描</span></div>
             {filteredMonitorAlerts.map((alert) => { const experiment = experiments.find((item) => item.id === alert.experimentId); return <article className={`monitor-alert-card ${alert.severity}`} key={alert.id}><div className="alert-card-head"><span className={`severity-badge ${alert.severity}`}>{alert.severity === "critical" ? "紧急" : "关注"}</span><strong>{experiment?.name}</strong><span>{alert.updatedAt}</span></div><div className="alert-card-body"><div><span>异常指标</span><strong>{alert.metric}</strong></div><p>{alert.evidence}</p><div><span>负责人</span><strong>{alert.owner}</strong></div></div><div className="row-actions"><button type="button" onClick={() => openDetail(experiment ?? null)}>详情</button><button type="button" data-start-investigation={alert.experimentId} onClick={() => startInvestigation(alert.experimentId, { alertId: alert.id, focus: "metric" })}>建立排查</button><button type="button" className="primary-button" onClick={() => { setSelectedAlertId(alert.id); setMonitorView("attribution"); }}>分析影响来源</button></div></article>; })}
           </section>
-          {investigationContext?.caseId ? <section className="current-investigation"><div className="current-investigation-heading"><div><h2>当前排查</h2><span>{investigationContext.caseId} · {investigationContext.owner}</span></div><span className={`investigation-status ${investigationContext.status}`}>{investigationStatusText[investigationContext.status]}</span></div><div className="current-investigation-actions"><button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => navigateWithInvestigation("lineage", "relationship")}>查看关系</button><button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => navigateWithInvestigation("rollout", "rollout")}>查看放量</button><button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => navigateWithInvestigation("check", "validation")}>重新校验</button></div></section> : null}
+          {investigationContext?.caseId ? <section className="current-investigation"><div className="current-investigation-heading"><div><h2>当前排查</h2><span>{investigationContext.caseId} · {investigationContext.owner}</span></div><span className={`investigation-status ${investigationContext.status}`}>{investigationStatusText[investigationContext.status]}</span></div><div className="current-investigation-actions"><button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => navigateWithInvestigation("lineage", "relationship")}>查看关系</button><button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => navigateWithInvestigation("rollout", "rollout")}>查看放量</button><button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetail(targetExperiment)}>校验快照</button></div></section> : null}
         </> : null}
 
         {monitorView === "attribution" ? <section className="attribution-workbench" data-page-core="cross-experiment-attribution">
@@ -3741,7 +3712,7 @@ function App() {
             <Panel title="可见范围"><label className="field vertical"><span>业务域 / 实验范围</span><select value={activeProfile.visibility} onChange={(event) => updateProfile({ visibility: event.target.value })}><option>全部业务域与实验</option><option>所属业务域</option><option>负责与协作实验</option><option>授权业务域</option><option>显式授权实验</option></select></label><p className="hint">越出范围的归因候选只展示实验 ID、风险和负责人。</p></Panel>
             <Panel title="负责人"><div className="form-grid"><label className="field vertical"><span>角色负责人</span><input value={activeProfile.responsibleOwner} onChange={(event) => updateProfile({ responsibleOwner: event.target.value })} /></label><label className="field vertical"><span>代理负责人</span><input value={activeProfile.backupOwner} onChange={(event) => updateProfile({ backupOwner: event.target.value })} /></label></div></Panel>
           </div>
-          <div className="permission-matrix"><section><h3>模块权限</h3>{["实验评估", "分流方案", "上线前检查", "监控排查", "实验管理", "管理后台"].map((module) => <label key={module}><input type="checkbox" checked={activeProfile.modules.includes("全部模块") || activeProfile.modules.includes(module)} onChange={() => { const base = activeProfile.modules.filter((item) => item !== "全部模块"); updateProfile({ modules: base.includes(module) ? base.filter((item) => item !== module) : [...base, module] }); }} />{module}</label>)}</section><section><h3>动作权限</h3>{["查看", "编辑", "运行校验", "启停自己规则", "审核", "授权"].map((action) => <label key={action}><input type="checkbox" checked={activeProfile.actions.includes(action)} onChange={() => updateProfile({ actions: activeProfile.actions.includes(action) ? activeProfile.actions.filter((item) => item !== action) : [...activeProfile.actions, action] })} />{action}</label>)}</section></div>
+          <div className="permission-matrix"><section><h3>模块权限</h3>{["新增实验", "监控排查", "实验管理", "管理后台"].map((module) => <label key={module}><input type="checkbox" checked={activeProfile.modules.includes("全部模块") || activeProfile.modules.includes(module)} onChange={() => { const base = activeProfile.modules.filter((item) => item !== "全部模块"); updateProfile({ modules: base.includes(module) ? base.filter((item) => item !== module) : [...base, module] }); }} />{module}</label>)}</section><section><h3>动作权限</h3>{["查看", "编辑", "启停自己规则", "审核", "授权"].map((action) => <label key={action}><input type="checkbox" checked={activeProfile.actions.includes(action)} onChange={() => updateProfile({ actions: activeProfile.actions.includes(action) ? activeProfile.actions.filter((item) => item !== action) : [...activeProfile.actions, action] })} />{action}</label>)}</section></div>
           <Panel title="规则阈值范围"><label className="field vertical"><span>规则调整边界</span><select value={activeProfile.ruleThresholdRange} onChange={(event) => updateProfile({ ruleThresholdRange: event.target.value })}><option>可维护模板上下限</option><option>模板范围内调整</option><option>只读</option></select></label></Panel>
         </div>
       </div>

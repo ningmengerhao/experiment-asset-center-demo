@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   calculateSplitSamplePlan,
+  calculateCreateSampleAssessment,
   CREATED_RECORDS_STORAGE_KEY,
   CREATE_DRAFT_STORAGE_KEY,
   clearCreateDraft,
@@ -9,6 +10,7 @@ import {
   createHash,
   loadCreateDraft,
   loadCreatedRecords,
+  isSeedGenerationCurrent,
   normalizeCreateStep,
   readCreateStep,
   rankCandidateResults,
@@ -27,6 +29,8 @@ const storage = {
 
 const draft = createDefaultDraft();
 assert.equal(draft.recordId, "");
+assert.equal(isSeedGenerationCurrent(draft), true);
+assert.equal(isSeedGenerationCurrent({ ...draft, basic: { ...draft.basic, domain: "会员" } }), false);
 assert.equal(normalizeCreateStep("seed"), "seed");
 assert.equal(normalizeCreateStep("unknown"), "basic");
 assert.equal(createHash("validation"), "#create?step=validation");
@@ -48,6 +52,14 @@ const splitPlan = calculateSplitSamplePlan(100, [{ id: "a", label: "A", ratio: 7
 assert.equal(splitPlan.total, 1000);
 assert.equal(splitPlan.groups.reduce((total, group) => total + group.samples, 0), 1000);
 assert.equal(splitPlan.groups.find((group) => group.label === "C")?.samples, 100);
+const createAssessment = calculateCreateSampleAssessment({ ...draft.sample, splitGroups: [{ id: "a", label: "A", ratio: 70 }, { id: "b", label: "B", ratio: 30 }] });
+assert.equal(createAssessment.splitMessage, "合计 100%");
+assert.equal(createAssessment.periodStatus, "passed");
+assert.equal(createAssessment.dimensions.every((item) => item.status === "passed"), true);
+assert.equal(calculateCreateSampleAssessment({ ...draft.sample, splitGroups: [{ id: "a", label: "A", ratio: 50 }, { id: "b", label: "B", ratio: 40 }] }).splitMessage, "还差 10%");
+assert.equal(calculateCreateSampleAssessment({ ...draft.sample, maxDays: 2.1 }).periodStatus, "warning");
+assert.equal(calculateCreateSampleAssessment({ ...draft.sample, maxDays: 1 }).periodStatus, "critical");
+assert.equal(calculateCreateSampleAssessment({ ...draft.sample, stableDays: 1 }).dimensions.find((item) => item.label === "基线稳定")?.status, "critical");
 const shortSuffixes = Array.from({ length: 12 }, (_, index) => createShortSeedSuffix("generation-key", index));
 assert.equal(shortSuffixes.every((suffix) => /^\d{4,8}$/.test(suffix)), true);
 assert.equal(new Set(shortSuffixes).size, shortSuffixes.length);

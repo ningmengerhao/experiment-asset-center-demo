@@ -10,11 +10,8 @@ export const allowedTransitions = Object.freeze({
 
 const tabs = new Set([
   "create",
-  "evaluate",
   "list",
   "investigate",
-  "seed",
-  "check",
   "lineage",
   "rollout",
   "seedHistory",

@@ -17,10 +17,7 @@ const screenshotTargets = {
   mobile: path.join(projectRoot, "dist", "ui-check-investigation-mobile.png"),
 };
 const userTabs = [
-  ["evaluate", "实验评估", "sample-planning"],
-  ["seed", "分流方案", "traffic-split-evaluation"],
   ["seedHistory", "随机数放量历史", "seed-rollout-history"],
-  ["check", "上线前检查", "validation-checklist"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
   ["lineage", "父子实验", "relationship-map"],
@@ -32,14 +29,7 @@ const viewports = [
   { width: 585, height: 1024 },
   { width: 390, height: 844 },
 ];
-const tableRequiredTabs = new Set(["evaluate", "seed", "seedHistory", "list", "lineage", "rollout", "myImports"]);
-const expectedStageTargets = [
-  ["evaluate", "实验评估"],
-  ["seed", "分流方案"],
-  ["check", "上线前检查"],
-  ["investigate", "监控排查"],
-  ["list", "实验清单"],
-];
+const tableRequiredTabs = new Set(["seedHistory", "list", "lineage", "rollout", "myImports"]);
 const investigationStorageKey = "experiment-asset-investigation-v1";
 const defaultTimeout = 10_000;
 
@@ -457,7 +447,7 @@ async function run() {
     assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "首页", "List route must render as the home navigation item.");
     pass("empty URL opens the experiment ledger home");
 
-    await openUrl(`${distUrl}#evaluate`);
+    await openUrl(`${distUrl}#list`);
     await seedInvestigationContext();
     await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d`);
     await expectPageContract("investigate", "监控排查", "alert-queue");
@@ -528,17 +518,34 @@ async function run() {
     await typeText('[data-create-basic="guardrailMetric"]', "投诉率");
     await typeText('[data-create-basic="hypothesis"]', "新版引导可以提升首次购买转化。");
     await physicalClick("[data-create-save]");
-    await waitFor("saved draft returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("草稿") && Boolean(document.querySelector("[data-edit-create-draft]"))`));
+    await waitFor("saved draft remains on current step", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === "新增首购引导"`));
+    await openUrl(`${distUrl}#list`);
+    await waitFor("saved draft appears in ledger", () => evaluate(`document.body.textContent.includes("草稿") && Boolean(document.querySelector("[data-edit-create-draft]"))`));
     await physicalClick("[data-edit-create-draft]");
     await waitFor("draft edit restores basic information", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === "新增首购引导"`));
     await physicalClick("[data-create-next]");
     await waitFor("basic step saves and advances", () => evaluate(`location.hash === "#create?step=sample" && JSON.parse(localStorage.getItem("experiment-asset-create-draft-v1"))?.savedStep === "sample"`));
     assert.equal(await evaluate(`document.querySelectorAll("[data-create-split-config] [data-create-split-ratio]").length`), 2, "Sample evaluation must start with two split groups.");
+    assert.equal(await evaluate(`document.querySelector("[data-create-split-total]")?.textContent === "合计 100%"`), true, "Split total must validate as 100% immediately.");
     const totalBeforeSplitChange = await evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent`);
     await replaceText('[data-create-split-ratio="0"]', "70");
+    await replaceText('[data-create-split-ratio="1"]', "20");
+    await waitFor("split deficit validation", () => evaluate(`document.querySelector("[data-create-split-total]")?.textContent === "还差 10%" && Boolean(document.querySelector("[data-create-split-validation]"))`));
     await replaceText('[data-create-split-ratio="1"]', "30");
-    await waitFor("split allocation update", () => evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent.includes("A 组 70%") && document.querySelector("[data-create-allocation-summary]")?.textContent.includes("B 组 30%")`));
+    await waitFor("split allocation update", () => evaluate(`document.querySelector("[data-create-split-total]")?.textContent === "合计 100%" && !document.querySelector("[data-create-split-validation]") && document.querySelector("[data-create-allocation-summary]")?.textContent.includes("A 组 70%") && document.querySelector("[data-create-allocation-summary]")?.textContent.includes("B 组 30%")`));
     assert.notEqual(await evaluate(`document.querySelector("[data-create-allocation-summary]")?.textContent`), totalBeforeSplitChange, "Split proportions must affect the sample allocation.");
+    assert.equal(await evaluate(`document.querySelector("[data-create-sample-results]")?.textContent.includes("最小组所需样本量")`), true, "Sample result must name the minimum group requirement.");
+    const sampleResultsBeforeMde = await evaluate(`document.querySelector("[data-create-sample-results]")?.textContent`);
+    await replaceText('[data-create-sample-field="mde"] input', "0.5");
+    await waitFor("minimum group sample recomputes", () => evaluate(`document.querySelector("[data-create-sample-results]")?.textContent !== ${JSON.stringify(sampleResultsBeforeMde)}`));
+    await replaceText('[data-create-sample-field="maxDays"] input', "1.05");
+    await waitFor("period warning threshold", () => evaluate(`Boolean(document.querySelector("[data-create-sample-results] .metric-card.warning")) && document.querySelector("[data-create-period-recommendation]")?.classList.contains("warning")`));
+    await replaceText('[data-create-sample-field="maxDays"] input', "0.5");
+    await waitFor("period critical threshold", () => evaluate(`Boolean(document.querySelector("[data-create-sample-results] .metric-card.danger")) && document.querySelector("[data-create-period-recommendation]")?.classList.contains("critical")`));
+    await physicalClick(".create-expand-button");
+    await replaceText('[data-create-sample-field="identityCoverage"] input', "60");
+    await replaceText('[data-create-sample-field="stableDays"] input', "1");
+    await waitFor("five dimension linkage", () => evaluate(`(() => { const rows = [...document.querySelectorAll("[data-create-feasibility-live] section")]; return rows.some((row) => row.textContent.includes("流量覆盖") && row.querySelector(".quality-badge.critical")) && rows.some((row) => row.textContent.includes("基线稳定") && row.querySelector(".quality-badge.critical")); })()`));
     await physicalClick("[data-create-next]");
     await waitFor("sample step advances to seed", () => evaluate(`location.hash === "#create?step=seed"`));
     assert.equal(await evaluate(`document.querySelectorAll("[data-create-seed-summary] select").length`), 0, "Experiment domain and split ratio must be read-only on the seed step.");
@@ -547,13 +554,15 @@ async function run() {
     await waitFor("first randomized seed generation", () => evaluate(`!document.querySelector("[data-create-seed-stale]") && Boolean(document.querySelector("[data-create-seed-value]"))`));
     const firstGeneratedSeed = await evaluate(`document.querySelector("[data-create-seed-value]")?.textContent`);
     assert.equal(await evaluate(`/_\\d{4,8}$/.test(document.querySelector("[data-create-seed-value]")?.textContent || "")`), true, "Generated seed suffix must contain 4 to 8 digits.");
-    assert.equal(await evaluate(`Number(document.querySelector("[data-create-seed-attempts]")?.dataset.createSeedAttempts) >= 1 && Number(document.querySelector("[data-create-seed-attempts]")?.dataset.createSeedAttempts) <= 20`), true, "Automatic refresh attempts must remain within 20 rounds.");
+    assert.equal(await evaluate(`!document.body.textContent.includes("第 ") && !document.querySelector("[data-create-seed-attempts]")`), true, "Generation attempt counts must not be exposed to users.");
     assert.equal(await evaluate(`Boolean(document.querySelector(".create-seed-table .quality-badge.passed"))`), true, "Automatic refresh must stop on a candidate group containing a pass result.");
     await physicalClick("[data-create-seed-generate]");
     await waitFor("second randomized seed generation", () => evaluate(`document.querySelector("[data-create-seed-value]")?.textContent !== ${JSON.stringify(firstGeneratedSeed)}`));
     assert.equal(await evaluate(`(() => { const rank = { passed: 0, warning: 1, critical: 2 }; const rows = [...document.querySelectorAll(".create-seed-table tbody tr")]; return rows.every((row, index) => { if (!index) return true; const previous = rows[index - 1]; const previousQuality = [...previous.querySelector(".quality-badge").classList].find((name) => rank[name] !== undefined); const currentQuality = [...row.querySelector(".quality-badge").classList].find((name) => rank[name] !== undefined); const previousScore = Number(previous.querySelector(".table-score").textContent.replace(/\\D/g, "")); const currentScore = Number(row.querySelector(".table-score").textContent.replace(/\\D/g, "")); return rank[previousQuality] < rank[currentQuality] || rank[previousQuality] === rank[currentQuality] && previousScore >= currentScore; }); })()`), true, "Candidate seeds must be sorted from best validation result to worst.");
     await physicalClick("[data-create-seed-candidate]");
-    await waitFor("candidate carries into validation", () => evaluate(`location.hash === "#create?step=validation" && document.querySelector("[data-create-validation-results]")`));
+    assert.equal(await evaluate(`document.querySelectorAll("[data-create-seed-candidate]:checked").length`), 1, "Only one candidate seed may be selected.");
+    await physicalClick("[data-create-next]");
+    await waitFor("selected candidate carries into validation", () => evaluate(`location.hash === "#create?step=validation" && document.querySelector("[data-create-validation-results]")`));
     assert.equal(await evaluate(`document.querySelectorAll(".create-validation-context input[disabled]")[1]?.value.includes("A:70% B:30%")`), true, "Validation must retain the selected split ratio.");
     await physicalClick("[data-create-complete]");
     await waitFor("wizard completion returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("新增首购引导")`));
@@ -599,16 +608,12 @@ async function run() {
     await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
     pass("new experiment can route to the existing upload import flow");
 
-    for (const [targetTab, targetBreadcrumb] of expectedStageTargets) {
-      await openUrl(`${distUrl}#evaluate`);
-      await expectPageContract("evaluate", "实验评估", "sample-planning");
-      await physicalClick(`[data-stage-target="${targetTab}"]`);
-      const targetCore = userTabs.find(([tab]) => tab === targetTab)?.[2];
-      assert(targetCore, `Missing core-region contract for stage target ${targetTab}`);
-      await waitFor(`stage ${targetTab} hash`, () => evaluate(`location.hash === ${JSON.stringify(`#${targetTab}`)}`));
-      await expectPageContract(targetTab, targetBreadcrumb, targetCore);
+    for (const legacyHash of ["#evaluate", "#seed", "#check"]) {
+      await openUrl(`${distUrl}${legacyHash}`);
+      await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#list"`));
+      await expectPageContract("list", "实验清单", "experiment-ledger");
     }
-    pass("all stage navigation controls are interactive");
+    pass("legacy stage routes normalize to the experiment ledger");
 
     for (const viewport of viewports) {
       await setViewport(viewport);
@@ -638,7 +643,7 @@ async function run() {
     }
 
     await setViewport(viewports[0]);
-    await openUrl(`${distUrl}#evaluate`);
+    await openUrl(`${distUrl}#list`);
     for (const [tab, label, core] of userTabs) {
       await physicalClick(`[data-nav-id="${tab}"]`);
       await waitFor(`${label} navigation click`, () => evaluate(`location.hash === ${JSON.stringify(`#${tab}`)}`));
@@ -648,7 +653,7 @@ async function run() {
 
     if (screenshotMode) {
       await setViewport({ width: 1366, height: 768 });
-      await openUrl(`${distUrl}#evaluate`);
+      await openUrl(`${distUrl}#list`);
       await seedInvestigationContext();
 
       await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview`);

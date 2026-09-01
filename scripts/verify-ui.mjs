@@ -38,18 +38,14 @@ check("artifact is generated from React production source", includesAll(builder,
 check("artifact does not contain the React development runtime", !dist.includes("react.development.js") && !dist.includes("Download the React DevTools"));
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
-check("ordinary-user navigation keeps a dedicated home before stage groups", /title:\s*"首页"[\s\S]*key:\s*"list"[\s\S]*label:\s*"首页"[\s\S]*title:\s*"实验前"/.test(app));
-check("experiment management starts with lineage after moving the ledger home", /title:\s*"实验管理"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"myImports"/.test(app));
-check("feasibility assessment covers operational dimensions and alternatives", includesAll(evaluationPage, ["流量覆盖", "基线稳定", "实验污染", "护栏完整", "业务价值", "替代方案"]));
-check("seed page owns traffic structure instead of statistical validation", includesAll(seedPage, ["分流方案", "分流层", "样本口径", "历史复用风险", "带入上线前检查"])
-  && !includesAll(seedPage, ["<th>Pre-AA</th>", "<th>均匀性</th>", "<th>正交性</th>"]));
-check("pre-launch validation supports explicit comparison scope", includesAll(checkPage, ["校验范围", "全部运行实验", "同业务域", "同分流层", "手动指定", "范围内实验"]));
+check("ordinary-user navigation keeps home and removes legacy stage groups", /title:\s*"首页"[\s\S]*key:\s*"list"[\s\S]*label:\s*"首页"/.test(app) && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
+check("experiment management places seed history after rollout", /title:\s*"实验管理"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"seedHistory"[\s\S]*key:\s*"myImports"/.test(app));
+check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
 check("permission page supports role profiles scopes and audit", includesAll(permissionPage, ["角色档案", "可见范围", "动作权限", "代理负责人", "规则阈值范围", "权限变更记录"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
-  'activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "seedHistory"',
-  'activeTab === "check"', 'activeTab === "investigate"', 'activeTab === "list"',
+  'activeTab === "seedHistory"', 'activeTab === "investigate"', 'activeTab === "list"',
   'activeTab === "lineage"', 'activeTab === "rollout"', 'activeTab === "myImports"',
 ]));
 check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "importReview", "governance", "permission"]));
@@ -64,8 +60,11 @@ check("ledger filters use a white single-row toolbar", includesAll(css, [".ledge
 check("ledger filter dialog uses a responsive two-column layout", includesAll(css, [".filter-dialog-grid", "grid-template-columns: repeat(2", ".filter-dialog-mask"]));
 check("new experiment control opens a creation-method dialog", includesAll(app, ["data-open-create-experiment", "createExperimentOpen", "data-create-experiment-dialog", "data-create-method=\"import\"", "data-create-method=\"direct\""]) && includesAll(css, [".create-experiment-dialog", ".create-experiment-options"]));
 check("direct creation uses a hidden four-step wizard", includesAll(app, ["activeTab === \"create\"", "renderCreateFlow", "data-page-id=\"create\"", "data-create-basic", "data-create-next", "data-create-complete", "navigateToCreateStep"]) && includesAll(css, [".create-progress", ".create-sample-grid", ".create-seed-grid", ".create-validation-context", ".create-flow-footer"]));
-check("creation wizard owns its domain split ratios and generated seed snapshot", includesAll(app, ["data-create-basic=\"domain\"", "data-create-split-config", "calculateSplitSamplePlan", "data-create-allocation-summary", "data-create-seed-summary", "data-create-seed-attempts", "data-create-seed-generate", "buildCreateSeedCandidates", "maxAttempts = 20", "isGeneratedConfigCurrent", "rankCandidateResults"]) && includesAll(css, [".create-split-config", ".create-split-groups", ".create-seed-summary", ".create-seed-stale"]));
-check("new experiment saves editable ledger drafts and always starts fresh", includesAll(app, ["recordId", "saveCreateToLedger", "createLocalExperimentRecord(draft, \"draft\")", "data-edit-create-draft", "editCreateDraft", "createDefaultDraft()", "已开启新的实验登记"]) && includesAll(css, [".status-dot.draft"]));
+check("creation wizard owns its domain split ratios and generated seed snapshot", includesAll(app, ["data-create-basic=\"domain\"", "data-create-split-config", "calculateCreateSampleAssessment", "data-create-allocation-summary", "data-create-seed-summary", "data-create-seed-generate", "buildCreateSeedCandidates", "maxAttempts = 20", "isGeneratedConfigCurrent", "isSeedGenerationCurrent", "rankCandidateResults"]) && !app.includes("data-create-seed-attempts") && includesAll(css, [".create-split-config", ".create-split-groups", ".create-seed-summary", ".create-seed-stale"]));
+check("creation wizard selects one seed before the next step", includesAll(app, ["选择随机数种子", 'type="radio"', 'name="create-seed-choice"', "请选择一个随机数种子", 'createStep === "seed"']) && includesAll(css, [".create-seed-choice", ".create-manual-scope-list"]));
+check("creation wizard evaluates split sums periods and feasibility in real time", includesAll(app, ["calculateCreateSampleAssessment", "data-create-split-total", "data-create-split-validation", "最小组所需样本量", "data-create-sample-results", "periodStatus", "data-create-period-recommendation", "data-create-feasibility-live"]) && includesAll(css, [".create-split-validation", ".create-feasibility-live"]));
+check("new experiment saves editable ledger drafts and always starts fresh", includesAll(app, ["recordId", "saveCreateToLedger", "createLocalExperimentRecord(draft, \"draft\")", "data-edit-create-draft", "editCreateDraft", "createDefaultDraft()", "已保存到实验清单草稿，可继续当前编辑", "已开启新的实验登记"]) && !app.includes('navigateToTab("list");\n    showToast("已保存到实验清单草稿') && includesAll(css, [".status-dot.draft"]));
+check("legacy validation entry points open snapshots instead of old pages", includesAll(app, ["校验快照", "当前详情已展示最近校验快照", 'openDetail(currentExperiment)']) && !app.includes('navigateWithInvestigation("check", "validation")'));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
 check("investigation browser selectors exist", includesAll(app, ["data-start-investigation", "data-investigation-status", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
