@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import {
   calculateSplitSamplePlan,
+  canDeleteExperiment,
   calculateCreateSampleAssessment,
   CREATED_RECORDS_STORAGE_KEY,
   CREATE_DRAFT_STORAGE_KEY,
   clearCreateDraft,
   createShortSeedSuffix,
+  getExperimentStatusAction,
   createDefaultDraft,
   createHash,
   loadCreateDraft,
   loadCreatedRecords,
   isSeedGenerationCurrent,
+  isValidCustomSeed,
   normalizeCreateStep,
+  normalizeCreatedRecords,
   readCreateStep,
   rankCandidateResults,
   saveCreateDraft,
@@ -31,6 +35,15 @@ const draft = createDefaultDraft();
 assert.equal(draft.recordId, "");
 assert.equal(isSeedGenerationCurrent(draft), true);
 assert.equal(isSeedGenerationCurrent({ ...draft, basic: { ...draft.basic, domain: "会员" } }), false);
+assert.equal(isValidCustomSeed("custom_seed:01"), true);
+assert.equal(isValidCustomSeed("bad seed"), false);
+assert.deepEqual(getExperimentStatusAction("pending"), { action: "上线", next: "running" });
+assert.deepEqual(getExperimentStatusAction("running"), { action: "下线", next: "paused" });
+assert.deepEqual(getExperimentStatusAction("paused"), { action: "终止", next: "ended" });
+assert.equal(getExperimentStatusAction("ended"), null);
+assert.equal(canDeleteExperiment("draft"), true);
+assert.equal(canDeleteExperiment("pending"), true);
+assert.equal(canDeleteExperiment("running"), false);
 assert.equal(normalizeCreateStep("seed"), "seed");
 assert.equal(normalizeCreateStep("unknown"), "basic");
 assert.equal(createHash("validation"), "#create?step=validation");
@@ -90,6 +103,24 @@ assert.equal(migratedDraft?.basic.domain, "推荐");
 assert.equal(migratedDraft?.recordId, "");
 assert.deepEqual(migratedDraft?.sample.splitGroups.map((group) => group.ratio), [50, 50]);
 assert.equal(migratedDraft?.seed.generated.domain, "推荐");
+
+const migratedRecord = normalizeCreatedRecords([{
+  id: "LOCAL-OLD-001",
+  sourcePlatform: "直接新增",
+  status: "paused",
+  name: "旧版本地实验",
+  businessLine: "增长",
+  owner: "赵晨",
+  coreMetric: "转化率",
+  guardrailMetric: "投诉率",
+  metricConfig: { baseline: 8.2, mde: 0.35, confidence: 95, power: 80, dailyTraffic: 180000 },
+  sampleDefinition: { domain: "增长", unit: "用户" },
+  checkSnapshot: { target: "增长_用户_1234" },
+  reviewSummary: { conclusion: "已完成本地新增向导与上线前检查。" },
+}])[0];
+assert.equal(migratedRecord.status, "pending");
+assert.equal(migratedRecord.createDraft.recordId, "LOCAL-OLD-001");
+assert.equal(migratedRecord.createDraft.seed.selectedSeed, "增长_用户_1234");
 
 assert.equal(saveCreatedRecords([{ id: "LOCAL-001" }], storage), true);
 assert.deepEqual(loadCreatedRecords(storage), [{ id: "LOCAL-001" }]);

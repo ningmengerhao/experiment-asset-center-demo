@@ -1,6 +1,12 @@
 export const CREATE_STEPS = ["basic", "sample", "seed", "validation"];
 export const CREATE_DRAFT_STORAGE_KEY = "experiment-asset-create-draft-v1";
 export const CREATED_RECORDS_STORAGE_KEY = "experiment-asset-created-records-v1";
+export const CUSTOM_SEED_PATTERN = /^[A-Za-z0-9_.:-]{4,64}$/;
+export const EXPERIMENT_STATUS_TRANSITIONS = Object.freeze({
+  pending: Object.freeze({ action: "上线", next: "running" }),
+  running: Object.freeze({ action: "下线", next: "paused" }),
+  paused: Object.freeze({ action: "终止", next: "ended" }),
+});
 export const DEFAULT_SPLIT_GROUPS = [
   { id: "group-a", label: "A", ratio: 50 },
   { id: "group-b", label: "B", ratio: 50 },
@@ -88,6 +94,18 @@ export function isSeedGenerationCurrent(draft) {
   return generated.domain === draft.basic?.domain && generated.sampleUnit === draft.seed?.sampleUnit && generated.candidateCount === draft.seed?.candidateCount && generated.template === draft.seed?.template && generatedRatio === currentRatio;
 }
 
+export function isValidCustomSeed(value) {
+  return typeof value === "string" && CUSTOM_SEED_PATTERN.test(value.trim());
+}
+
+export function getExperimentStatusAction(status) {
+  return EXPERIMENT_STATUS_TRANSITIONS[status] ?? null;
+}
+
+export function canDeleteExperiment(status) {
+  return status === "draft" || status === "pending";
+}
+
 export function rankCandidateResults(candidates) {
   const rank = { passed: 0, warning: 1, critical: 2 };
   return [...candidates].sort((left, right) => (rank[left.quality] ?? 3) - (rank[right.quality] ?? 3) || right.score - left.score || left.seed.localeCompare(right.seed));
@@ -139,6 +157,8 @@ export function createDefaultDraft() {
       sampleUnit: "用户",
       candidateCount: 6,
       template: "",
+      customSeed: "",
+      customCandidate: "",
       selectedSeed: "",
       generated: {
         key: "initial",
@@ -206,7 +226,7 @@ export function loadCreateDraft(storage = globalThis.localStorage) {
     const generated = parsed.seed.generated && typeof parsed.seed.generated === "object"
       ? { ...defaults.seed.generated, ...parsed.seed.generated, splitGroups: normalizeSplitGroups(parsed.seed.generated.splitGroups) }
       : { ...defaults.seed.generated, domain: basic.domain, sampleUnit: parsed.seed.sampleUnit || defaults.seed.sampleUnit, candidateCount: parsed.seed.candidateCount || defaults.seed.candidateCount, template: parsed.seed.template || "", splitGroups };
-    return { ...defaults, ...parsed, recordId: typeof parsed.recordId === "string" ? parsed.recordId : "", savedStep: normalizeCreateStep(parsed.savedStep), basic, sample: { ...defaults.sample, ...parsed.sample, splitGroups }, seed: { ...defaults.seed, ...parsed.seed, generated }, validation: { ...defaults.validation, ...parsed.validation } };
+    return { ...defaults, ...parsed, recordId: typeof parsed.recordId === "string" ? parsed.recordId : "", savedStep: normalizeCreateStep(parsed.savedStep), basic, sample: { ...defaults.sample, ...parsed.sample, splitGroups }, seed: { ...defaults.seed, ...parsed.seed, customSeed: typeof parsed.seed.customSeed === "string" ? parsed.seed.customSeed : "", customCandidate: typeof parsed.seed.customCandidate === "string" ? parsed.seed.customCandidate : "", generated }, validation: { ...defaults.validation, ...parsed.validation } };
   } catch {
     return null;
   }
@@ -233,10 +253,30 @@ export function loadCreatedRecords(storage = globalThis.localStorage) {
   try {
     const value = storage?.getItem(CREATED_RECORDS_STORAGE_KEY);
     const parsed = value ? JSON.parse(value) : [];
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? normalizeCreatedRecords(parsed) : [];
   } catch {
     return [];
   }
+}
+
+export function normalizeCreatedRecords(records) {
+  if (!Array.isArray(records)) return [];
+  return records.map((record) => {
+    if (!record || typeof record !== "object") return record;
+    const isLegacyCompletedLocal = record.sourcePlatform === "直接新增" && record.status === "paused" && record.reviewSummary?.conclusion === "已完成本地新增向导与上线前检查。";
+    if (!isLegacyCompletedLocal) return record;
+    const defaults = createDefaultDraft();
+    const selectedSeed = record.checkSnapshot?.target && record.checkSnapshot.target !== "待生成" ? record.checkSnapshot.target : "";
+    const draft = record.createDraft ?? {
+      ...defaults,
+      recordId: record.id ?? "",
+      savedStep: "validation",
+      basic: { ...defaults.basic, name: record.name ?? "", businessLine: record.businessLine ?? defaults.basic.businessLine, domain: record.sampleDefinition?.domain ?? record.businessLine ?? defaults.basic.domain, owner: record.owner ?? "", coreMetric: record.coreMetric ?? "", guardrailMetric: record.guardrailMetric ?? "" },
+      sample: { ...defaults.sample, baseline: record.metricConfig?.baseline ?? defaults.sample.baseline, mde: record.metricConfig?.mde ?? defaults.sample.mde, confidence: record.metricConfig?.confidence ?? defaults.sample.confidence, power: record.metricConfig?.power ?? defaults.sample.power, dailyTraffic: record.metricConfig?.dailyTraffic ?? defaults.sample.dailyTraffic },
+      seed: { ...defaults.seed, sampleUnit: record.sampleDefinition?.unit ?? defaults.seed.sampleUnit, selectedSeed },
+    };
+    return { ...record, status: "pending", createDraft: draft };
+  });
 }
 
 export function saveCreatedRecords(records, storage = globalThis.localStorage) {

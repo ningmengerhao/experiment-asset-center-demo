@@ -2,6 +2,17 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-02 - Lifecycle Status and Custom Seed Validation (v0.5.0)
+
+Changed:
+
+- Reworked the ledger around 草稿, 待上线, 运行中, 已暂停, and 已结束 status, with conditional edit, lifecycle, and local-delete actions.
+- Completing the new-experiment wizard now creates a 待上线 record and preserves its wizard snapshot for later editing.
+- Added local lifecycle transitions with audit and rollout events; legacy direct-created paused records migrate to 待上线 on load.
+- Moved validation snapshots and rollout history into experiment detail, simplifying ledger actions to details and lifecycle management.
+- Added custom seed validation to random seed generation: valid custom seeds join the candidate list and become the selected seed.
+- Added status, migration, lifecycle, deletion, and custom-seed regression coverage.
+
 ## 2026-09-01 - Consolidated Experiment Creation (v0.4.0)
 
 Changed:

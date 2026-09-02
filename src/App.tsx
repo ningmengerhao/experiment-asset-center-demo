@@ -44,10 +44,13 @@ import {
 import type { EvidenceEvent, EvidenceFocus, InvestigationContext, InvestigationStatus } from "./investigation.mjs";
 import {
   calculateCreateSampleAssessment,
+  canDeleteExperiment,
   clearCreateDraft,
   createShortSeedSuffix,
   createDefaultDraft,
   createHash as createExperimentHash,
+  getExperimentStatusAction,
+  isValidCustomSeed,
   loadCreateDraft,
   loadCreatedRecords,
   isSeedGenerationCurrent,
@@ -83,7 +86,7 @@ type Tab =
   | "governance"
   | "permission";
 type RoleView = "user" | "admin";
-type ExperimentStatus = "draft" | "running" | "paused" | "ended";
+type ExperimentStatus = "draft" | "pending" | "running" | "paused" | "ended";
 type QualityStatus = "passed" | "warning" | "critical";
 type SourceType = "平台接入" | "表格导入" | "手动补录";
 type CheckTargetType = "当前实验" | "候选 seed" | "批量 seed";
@@ -582,6 +585,7 @@ function tabFromHash(hash = typeof window !== "undefined" ? window.location.hash
 
 const statusText: Record<ExperimentStatus, string> = {
   draft: "草稿",
+  pending: "待上线",
   running: "运行中",
   paused: "已暂停",
   ended: "已结束",
@@ -1027,7 +1031,12 @@ function buildCreateSeedCandidates(generated: GeneratedSeedConfig) {
     suffixes.add(suffix);
     return `${base}_${suffix}`;
   });
-  return rankCandidateResults(seeds.map(scoreSeed).map((item) => ({ ...item, quality: item.score >= 82 ? "passed" as const : item.score >= 78 ? "warning" as const : "critical" as const })));
+  return rankCandidateResults(seeds.map(createSeedCandidate));
+}
+
+function createSeedCandidate(seed: string) {
+  const item = scoreSeed(seed);
+  return { ...item, quality: item.score >= 82 ? "passed" as const : item.score >= 78 ? "warning" as const : "critical" as const };
 }
 
 function erf(x: number) {
@@ -1107,6 +1116,7 @@ function App() {
   const [createStep, setCreateStep] = useState<CreateStep>(() => readCreateStep(typeof window === "undefined" ? "" : window.location.hash));
   const [createSampleExpanded, setCreateSampleExpanded] = useState(false);
   const [createdExperiments, setCreatedExperiments] = useState<ExperimentRecord[]>(() => loadCreatedRecords() as ExperimentRecord[]);
+  const [experimentOverrides, setExperimentOverrides] = useState<Record<string, ExperimentRecord>>({});
   const [seedInputMode, setSeedInputMode] = useState<SeedInputMode>("manual");
   const [seedBase, setSeedBase] = useState("onboarding_core");
   const [seedManualList, setSeedManualList] = useState("member-copy-v2\nsearch_empty_safe\npay_coupon_holdout");
@@ -1155,7 +1165,7 @@ function App() {
   const activeDrawer = drawerStack[drawerStack.length - 1] ?? null;
   const hasOpenDrawer = Boolean(activeDrawer);
 
-  const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments], [createdExperiments]);
+  const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments.map((item) => experimentOverrides[item.id] ?? item)], [createdExperiments, experimentOverrides]);
 
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
@@ -1358,7 +1368,8 @@ function App() {
       return;
     }
     if (createStep === "seed") {
-      if (!isSeedGenerationCurrent(createDraft)) {
+      const hasValidatedCustomSeed = createDraft.seed.customCandidate === createDraft.seed.selectedSeed && isValidCustomSeed(createDraft.seed.customCandidate);
+      if (!isSeedGenerationCurrent(createDraft) && !hasValidatedCustomSeed) {
         showToast("生成配置已修改，请重新生成随机数种子");
         return;
       }
@@ -1376,7 +1387,7 @@ function App() {
   }
 
   function updateCreateBasic(key: keyof CreateExperimentDraft["basic"], value: string) {
-    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, [key]: value }, seed: key === "domain" ? { ...current.seed, selectedSeed: "" } : current.seed }));
+    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, [key]: value }, seed: key === "domain" ? { ...current.seed, selectedSeed: "", customCandidate: "" } : current.seed }));
   }
 
   function updateCreateSample(key: CreateSampleField, value: number) {
@@ -1387,7 +1398,7 @@ function App() {
     setCreateDraft((current) => ({
       ...current,
       sample: { ...current.sample, splitGroups: current.sample.splitGroups.map((group, groupIndex) => groupIndex === index ? { ...group, [key]: key === "ratio" ? Number(value) : value } : group) },
-      seed: { ...current.seed, selectedSeed: "" },
+      seed: { ...current.seed, selectedSeed: "", customCandidate: "" },
     }));
   }
 
@@ -1397,7 +1408,7 @@ function App() {
       return {
         ...current,
         sample: { ...current.sample, splitGroups: [...current.sample.splitGroups, { id: `group-${Date.now()}-${index}`, label: String.fromCharCode(65 + index), ratio: 0 }] },
-        seed: { ...current.seed, selectedSeed: "" },
+        seed: { ...current.seed, selectedSeed: "", customCandidate: "" },
       };
     });
   }
@@ -1406,12 +1417,22 @@ function App() {
     setCreateDraft((current) => current.sample.splitGroups.length <= 2 ? current : {
       ...current,
       sample: { ...current.sample, splitGroups: current.sample.splitGroups.filter((_, groupIndex) => groupIndex !== index) },
-      seed: { ...current.seed, selectedSeed: "" },
+      seed: { ...current.seed, selectedSeed: "", customCandidate: "" },
     });
   }
 
   function updateCreateSeedConfig(key: "sampleUnit" | "candidateCount" | "template", value: string | number) {
-    setCreateDraft((current) => ({ ...current, seed: { ...current.seed, [key]: value, selectedSeed: "" } }));
+    setCreateDraft((current) => ({ ...current, seed: { ...current.seed, [key]: value, selectedSeed: "", customCandidate: "" } }));
+  }
+
+  function validateCustomCreateSeed() {
+    const customSeed = createDraft.seed.customSeed.trim();
+    if (!isValidCustomSeed(customSeed)) {
+      showToast("自定义随机数种子需为 4-64 位字母、数字或 . _ : -");
+      return;
+    }
+    setCreateDraft((current) => ({ ...current, seed: { ...current.seed, customSeed, customCandidate: customSeed, selectedSeed: customSeed } }));
+    showToast("已完成自定义随机数种子校验并选中");
   }
 
   function generateCreateSeeds() {
@@ -1470,13 +1491,14 @@ function App() {
       stageStatus: "实验前",
       metricConfig: { metricType: "转化率", baseline: draft.sample.baseline, mde: draft.sample.mde, confidence: draft.sample.confidence, power: draft.sample.power, dailyTraffic: draft.sample.dailyTraffic },
       sampleDefinition: { domain: draft.basic.domain, source: "历史 A/A", window: "近 14 天", unit: draft.seed.sampleUnit },
-      reviewSummary: { conclusion: status === "draft" ? "本地草稿，待继续填写和完成校验。" : "已完成本地新增向导与上线前检查。", tags: [status === "draft" ? "草稿" : "直接新增", draft.seed.selectedSeed || "未选择种子", draft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: status === "draft" ? "编辑草稿后继续" : "等待启动与放量配置" },
+      reviewSummary: { conclusion: status === "draft" ? "本地草稿，待继续填写和完成校验。" : status === "pending" ? "已完成新增实验配置，等待上线。" : "实验已进入生命周期管理。", tags: [status === "draft" ? "草稿" : status === "pending" ? "待上线" : "直接新增", draft.seed.selectedSeed || "未选择种子", draft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: status === "draft" ? "编辑草稿后继续" : status === "pending" ? "确认后上线" : "查看放量与校验快照" },
       alertStatus: "info",
       rolloutEvents: [],
       sourceQuality: "本地创建",
       importBatchId: "-",
       checkSnapshot: { target: draft.seed.selectedSeed || "待生成", preAA: status === "draft" ? "待校验" : "已通过", uniformity: status === "draft" ? "待校验" : "已通过", orthogonality: status === "draft" ? "待校验" : "已通过", sampleScope: `${draft.basic.domain} · ${draft.seed.sampleUnit}`, updatedAt: timestamp },
-      auditEvents: [{ time: timestamp, operator: draft.basic.owner.trim() || "当前用户", action: status === "draft" ? "保存新增实验草稿" : "完成新增实验创建" }],
+      auditEvents: [{ time: timestamp, operator: draft.basic.owner.trim() || "当前用户", action: status === "draft" ? "保存新增实验草稿" : status === "pending" ? "完成新增实验配置，等待上线" : "更新实验状态" }],
+      ...(status === "draft" || status === "pending" ? { createDraft: { ...draft, recordId: id, savedStep: status === "pending" ? "validation" : draft.savedStep } } : {}),
     };
   }
 
@@ -1485,7 +1507,16 @@ function App() {
       showToast("该草稿缺少可恢复的新建信息");
       return;
     }
-    const draft = { ...record.createDraft, recordId: record.id };
+    const defaults = createDefaultDraft();
+    const draft = {
+      ...defaults,
+      ...record.createDraft,
+      recordId: record.id,
+      basic: { ...defaults.basic, ...record.createDraft.basic },
+      sample: { ...defaults.sample, ...record.createDraft.sample },
+      seed: { ...defaults.seed, ...record.createDraft.seed, generated: { ...defaults.seed.generated, ...record.createDraft.seed.generated } },
+      validation: { ...defaults.validation, ...record.createDraft.validation },
+    };
     setCreateDraft(draft);
     saveCreateDraft(draft);
     navigateToCreateStep(draft.savedStep);
@@ -1498,7 +1529,7 @@ function App() {
       showToast(errors.length ? `请补充：${errors[0]}` : "请先选择并带入一个候选种子");
       return;
     }
-    const record = createLocalExperimentRecord({ ...createDraft, savedStep: "validation" }, "paused");
+    const record = createLocalExperimentRecord({ ...createDraft, savedStep: "validation" }, "pending");
     setCreatedExperiments((current) => {
       const exists = current.some((item) => item.id === record.id);
       const nextRecords = exists ? current.map((item) => item.id === record.id ? record : item) : [record, ...current];
@@ -1509,6 +1540,62 @@ function App() {
     setCreateDraft(createDefaultDraft());
     navigateToTab("list");
     showToast(`已完成创建：${record.name}`);
+  }
+
+  function persistLedgerRecord(record: ExperimentRecord) {
+    if (createdExperiments.some((item) => item.id === record.id)) {
+      setCreatedExperiments((current) => {
+        const nextRecords = current.map((item) => item.id === record.id ? record : item);
+        saveCreatedRecords(nextRecords);
+        return nextRecords;
+      });
+      return;
+    }
+    setExperimentOverrides((current) => ({ ...current, [record.id]: record }));
+  }
+
+  function updateExperimentLifecycle(record: ExperimentRecord) {
+    const action = getExperimentStatusAction(record.status);
+    if (!action) return;
+    const now = new Date();
+    const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
+    const nextStatus = action.next as ExperimentStatus;
+    const nextRollout = nextStatus === "running" ? Math.max(record.rollout, 10) : 0;
+    const updated: ExperimentRecord = {
+      ...record,
+      status: nextStatus,
+      rollout: nextRollout,
+      lastUpdated: timestamp,
+      stageStatus: nextStatus === "running" ? "运行中" : nextStatus === "paused" ? "上线前" : "追溯复盘",
+      rolloutEvents: [...record.rolloutEvents, { time: timestamp, type: action.action, from: `${record.rollout}%`, to: `${nextRollout}%`, operator: "当前用户", reason: `实验状态调整为${statusText[nextStatus]}`, sourcePlatform: "本地操作" }],
+      auditEvents: [{ time: timestamp, operator: "当前用户", action: `${action.action}：${statusText[record.status]}→${statusText[nextStatus]}` }, ...record.auditEvents],
+      createDraft: record.createDraft,
+    };
+    persistLedgerRecord(updated);
+    showToast(`已${action.action}实验：${record.name}`);
+  }
+
+  function deleteExperimentRecord(record: ExperimentRecord) {
+    if (!canDeleteExperiment(record.status)) return;
+    if (!window.confirm(`确认删除“${record.name}”吗？此操作仅删除本机草稿或待上线记录。`)) return;
+    if (createdExperiments.some((item) => item.id === record.id)) {
+      setCreatedExperiments((current) => {
+        const nextRecords = current.filter((item) => item.id !== record.id);
+        saveCreatedRecords(nextRecords);
+        return nextRecords;
+      });
+    } else {
+      setExperimentOverrides((current) => {
+        const next = { ...current };
+        delete next[record.id];
+        return next;
+      });
+    }
+    if (createDraft.recordId === record.id) {
+      clearCreateDraft();
+      setCreateDraft(createDefaultDraft());
+    }
+    showToast(`已删除：${record.name}`);
   }
 
   function resetLedgerFilters() {
@@ -2041,8 +2128,8 @@ function App() {
                 <strong>{qualityText[selected.quality]}</strong>
               </div>
               <div>
-                <span>实验阶段</span>
-                <strong>{selected.stageStatus}</strong>
+                <span>实验状态</span>
+                <strong>{statusText[selected.status]}</strong>
               </div>
               <div>
                 <span>最近校验</span>
@@ -2109,8 +2196,8 @@ function App() {
                   <dd>{selected.sampleDefinition.domain} · {selected.sampleDefinition.source} · {selected.sampleDefinition.unit}</dd>
                 </div>
                 <div>
-                  <dt>实验阶段状态</dt>
-                  <dd>{selected.stageStatus}</dd>
+                  <dt>实验状态</dt>
+                  <dd>{statusText[selected.status]}</dd>
                 </div>
               </dl>
             </section>
@@ -2415,7 +2502,8 @@ function App() {
     const currentSplitRatio = splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ");
     const seedBase = `${createDraft.basic.domain}_${createDraft.seed.sampleUnit}`.toLowerCase();
     const isGeneratedConfigCurrent = isSeedGenerationCurrent(createDraft);
-    const createSeedCandidates = buildCreateSeedCandidates(generated);
+    const generatedCandidates = buildCreateSeedCandidates(generated);
+    const createSeedCandidates = rankCandidateResults([...generatedCandidates, ...(createDraft.seed.customCandidate ? [createSeedCandidate(createDraft.seed.customCandidate)] : [])].filter((item, index, array) => array.findIndex((candidate) => candidate.seed === item.seed) === index));
     const selectedCandidate = createSeedCandidates.find((item) => item.seed === createDraft.seed.selectedSeed) ?? createSeedCandidates[0] ?? null;
     const scopeExperiments = experiments.filter((item) => item.status === "running").filter((item) => {
       if (createDraft.validation.scope === "全部运行实验") return true;
@@ -2525,6 +2613,8 @@ function App() {
               <label className="field vertical"><span>样本口径</span><select data-create-seed-unit value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
               <NumberField label="候选种子数量" value={createDraft.seed.candidateCount} onChange={(value) => updateCreateSeedConfig("candidateCount", value)} />
               <label className="field vertical"><span>随机数种子模板（可选）</span><input data-create-seed-template value={createDraft.seed.template} onChange={(event) => updateCreateSeedConfig("template", event.target.value)} /></label>
+              <label className="field vertical create-custom-seed-field"><span>自定义随机数种子</span><input data-create-custom-seed value={createDraft.seed.customSeed} onChange={(event) => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, customSeed: event.target.value, selectedSeed: "", customCandidate: "" } }))} placeholder="4-64 位字母、数字或 . _ : -" /></label>
+              <button className="ghost-button create-custom-seed-check" data-validate-custom-seed type="button" onClick={validateCustomCreateSeed}><FileCheck2 size={16} /> 校验自定义种子</button>
               <button className="primary-button create-seed-generate" data-create-seed-generate type="button" onClick={generateCreateSeeds}><Shuffle size={16} /> 生成随机数种子</button>
             </div>
             <div className="create-seed-summary" data-create-seed-summary><span><small>实验域</small><strong>{createDraft.basic.domain}</strong></span><span><small>分流比例</small><strong>{currentSplitRatio}</strong></span><span><small>实验组数</small><strong>{splitGroups.length} 组</strong></span></div>
@@ -2532,7 +2622,7 @@ function App() {
           <Panel title="候选种子列表">
             {!isGeneratedConfigCurrent ? <p className="create-seed-stale" data-create-seed-stale>生成配置已修改，请重新生成随机数种子后再带入上线前检查。</p> : null}
             <div className="table-wrap"><table className="data-table compact sticky-actions create-seed-table"><thead><tr><th>序号</th><th>候选种子</th><th>样本口径</th><th>分流比例</th><th>校验结果</th><th>选择随机数种子</th></tr></thead><tbody>
-              {createSeedCandidates.map((item, index) => <tr key={item.seed}><td>{index + 1}</td><td className="mono" data-create-seed-value>{item.seed}</td><td>{generated.domain} · {generated.sampleUnit}</td><td>{generatedSplitRatio}</td><td><span className={`quality-badge ${item.quality}`}>{item.quality === "passed" ? "通过" : item.quality === "warning" ? "警告" : "不通过"}</span><small className="table-score">评分 {item.score}</small></td><td><label className="create-seed-choice" title={`选择 ${item.seed}`}><input type="radio" name="create-seed-choice" data-create-seed-candidate value={item.seed} checked={createDraft.seed.selectedSeed === item.seed} disabled={!isGeneratedConfigCurrent} onChange={() => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, selectedSeed: item.seed } }))} /><span className="sr-only">选择 {item.seed}</span></label></td></tr>)}
+              {createSeedCandidates.map((item, index) => { const isCustomCandidate = item.seed === createDraft.seed.customCandidate; return <tr key={item.seed}><td>{index + 1}</td><td className="mono" data-create-seed-value>{item.seed}</td><td>{generated.domain} · {generated.sampleUnit}</td><td>{generatedSplitRatio}</td><td><span className={`quality-badge ${item.quality}`}>{item.quality === "passed" ? "通过" : item.quality === "warning" ? "警告" : "不通过"}</span><small className="table-score">评分 {item.score}{isCustomCandidate ? " · 自定义" : ""}</small></td><td><label className="create-seed-choice" title={`选择 ${item.seed}`}><input type="radio" name="create-seed-choice" data-create-seed-candidate value={item.seed} checked={createDraft.seed.selectedSeed === item.seed} disabled={!isGeneratedConfigCurrent && !isCustomCandidate} onChange={() => setCreateDraft((current) => ({ ...current, seed: { ...current.seed, selectedSeed: item.seed } }))} /><span className="sr-only">选择 {item.seed}</span></label></td></tr>; })}
             </tbody></table></div>
           </Panel>
           {renderFooter()}
@@ -2586,6 +2676,7 @@ function App() {
               <span className="sr-only">状态</span>
               <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
                 <option value="all">状态</option>
+                <option value="pending">待上线</option>
                 <option value="running">运行中</option>
                 <option value="draft">草稿</option>
                 <option value="paused">已暂停</option>
@@ -2638,7 +2729,7 @@ function App() {
               <tr>
                 <th>实验</th>
                 <th>业务与来源</th>
-                <th>负责人/阶段</th>
+                <th>负责人</th>
                 <th>关系</th>
                 <th>放量/状态</th>
                 <th>质量与更新</th>
@@ -2666,7 +2757,6 @@ function App() {
                   </td>
                   <td>
                     <strong>{item.owner}</strong>
-                    <span>{item.stageStatus}</span>
                   </td>
                   <td>
                     <strong>{item.relationship}</strong>
@@ -2690,18 +2780,10 @@ function App() {
                   </td>
                   <td>
                     <div className="row-actions">
-                      {item.status === "draft" ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                       <button type="button" onClick={() => openDetail(item)}>查看详情</button>
-                      <button type="button" onClick={() => openDetail(item)}>校验快照</button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusedRolloutId(item.id);
-                          navigateToTab("rollout");
-                        }}
-                      >
-                        放量历史
-                      </button>
+                      {(item.status === "draft" || item.status === "pending") ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
+                      {getExperimentStatusAction(item.status) ? <button type="button" data-experiment-lifecycle={item.status} onClick={() => updateExperimentLifecycle(item)}>{getExperimentStatusAction(item.status)?.action}</button> : null}
+                      {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
                     </div>
                   </td>
                 </tr>

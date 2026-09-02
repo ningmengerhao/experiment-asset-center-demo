@@ -1511,6 +1511,14 @@ textarea:focus {
   justify-self: center;
 }
 
+.create-custom-seed-field {
+  grid-column: span 2;
+}
+
+.create-custom-seed-check {
+  align-self: end;
+}
+
 .create-seed-summary {
   display: flex;
   align-items: stretch;
@@ -1564,6 +1572,15 @@ textarea:focus {
 .create-seed-table .link-button:disabled {
   color: var(--text-3);
   cursor: not-allowed;
+}
+
+.ledger-delete-action {
+  color: var(--danger) !important;
+}
+
+.ledger-delete-action:hover {
+  color: var(--danger-text) !important;
+  text-decoration: underline;
 }
 
 .create-seed-choice {
@@ -3175,6 +3192,10 @@ textarea:focus {
   .create-seed-grid,
   .create-split-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .create-custom-seed-field {
+    grid-column: auto;
   }
 
   .create-validation-context {
