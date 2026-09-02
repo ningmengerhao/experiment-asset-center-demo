@@ -9,6 +9,7 @@ import {
   createDraftFromExperimentRecord,
   createShortSeedSuffix,
   getExperimentStatusAction,
+  getExperimentStatusActions,
   createDefaultDraft,
   createHash,
   loadCreateDraft,
@@ -40,7 +41,8 @@ assert.equal(isValidCustomSeed("custom_seed:01"), true);
 assert.equal(isValidCustomSeed("bad seed"), false);
 assert.deepEqual(getExperimentStatusAction("pending"), { action: "上线", next: "running" });
 assert.deepEqual(getExperimentStatusAction("running"), { action: "下线", next: "paused" });
-assert.deepEqual(getExperimentStatusAction("paused"), { action: "终止", next: "ended" });
+assert.deepEqual(getExperimentStatusAction("paused"), { action: "上线", next: "running" });
+assert.deepEqual(getExperimentStatusActions("paused"), [{ action: "上线", next: "running" }, { action: "终止", next: "ended" }]);
 assert.equal(getExperimentStatusAction("ended"), null);
 assert.equal(canDeleteExperiment("draft"), true);
 assert.equal(canDeleteExperiment("pending"), true);

@@ -2,6 +2,13 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-02 - Paused Experiment Actions (v0.5.2)
+
+Changed:
+
+- Added an “上线” action alongside “终止” for paused experiments, allowing paused records to return to running or end permanently.
+- Reused the existing lifecycle audit and rollout-event updates for both paused-state actions.
+
 ## 2026-09-02 - Experiment Copy Drafts (v0.5.1)
 
 Added:

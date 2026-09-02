@@ -16,6 +16,7 @@ export const CREATE_DRAFT_STORAGE_KEY: string;
 export const CREATED_RECORDS_STORAGE_KEY: string;
 export const CUSTOM_SEED_PATTERN: RegExp;
 export const EXPERIMENT_STATUS_TRANSITIONS: Readonly<Record<string, Readonly<{ action: string; next: string }>>>;
+export const EXPERIMENT_STATUS_ACTIONS: Readonly<Record<string, readonly Readonly<{ action: string; next: string }>[]>>;
 export const DEFAULT_SPLIT_GROUPS: CreateSplitGroup[];
 export function normalizeSplitGroups(value: unknown): CreateSplitGroup[];
 export function validateSplitGroups(value: unknown): string[];
@@ -26,6 +27,7 @@ export function calculateCreateSampleAssessment(sample: CreateExperimentDraft["s
 export function isSeedGenerationCurrent(draft: CreateExperimentDraft): boolean;
 export function isValidCustomSeed(value: unknown): boolean;
 export function getExperimentStatusAction(status: unknown): { action: string; next: string } | null;
+export function getExperimentStatusActions(status: unknown): readonly { action: string; next: string }[];
 export function canDeleteExperiment(status: unknown): boolean;
 export function rankCandidateResults<T extends { quality: "passed" | "warning" | "critical"; score: number; seed: string }>(candidates: T[]): T[];
 export function createShortSeedSuffix(generationKey: unknown, index: number): string;

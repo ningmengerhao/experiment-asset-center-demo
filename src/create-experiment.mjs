@@ -5,7 +5,12 @@ export const CUSTOM_SEED_PATTERN = /^[A-Za-z0-9_.:-]{4,64}$/;
 export const EXPERIMENT_STATUS_TRANSITIONS = Object.freeze({
   pending: Object.freeze({ action: "上线", next: "running" }),
   running: Object.freeze({ action: "下线", next: "paused" }),
-  paused: Object.freeze({ action: "终止", next: "ended" }),
+  paused: Object.freeze({ action: "上线", next: "running" }),
+});
+export const EXPERIMENT_STATUS_ACTIONS = Object.freeze({
+  pending: Object.freeze([EXPERIMENT_STATUS_TRANSITIONS.pending]),
+  running: Object.freeze([EXPERIMENT_STATUS_TRANSITIONS.running]),
+  paused: Object.freeze([EXPERIMENT_STATUS_TRANSITIONS.paused, Object.freeze({ action: "终止", next: "ended" })]),
 });
 export const DEFAULT_SPLIT_GROUPS = [
   { id: "group-a", label: "A", ratio: 50 },
@@ -100,6 +105,10 @@ export function isValidCustomSeed(value) {
 
 export function getExperimentStatusAction(status) {
   return EXPERIMENT_STATUS_TRANSITIONS[status] ?? null;
+}
+
+export function getExperimentStatusActions(status) {
+  return EXPERIMENT_STATUS_ACTIONS[status] ?? [];
 }
 
 export function canDeleteExperiment(status) {

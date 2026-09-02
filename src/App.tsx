@@ -51,6 +51,7 @@ import {
   createDefaultDraft,
   createHash as createExperimentHash,
   getExperimentStatusAction,
+  getExperimentStatusActions,
   isValidCustomSeed,
   loadCreateDraft,
   loadCreatedRecords,
@@ -1569,8 +1570,8 @@ function App() {
     setExperimentOverrides((current) => ({ ...current, [record.id]: record }));
   }
 
-  function updateExperimentLifecycle(record: ExperimentRecord) {
-    const action = getExperimentStatusAction(record.status);
+  function updateExperimentLifecycle(record: ExperimentRecord, requestedAction = getExperimentStatusAction(record.status)) {
+    const action = requestedAction;
     if (!action) return;
     const now = new Date();
     const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
@@ -2798,7 +2799,7 @@ function App() {
                       <button type="button" onClick={() => openDetail(item)}>查看详情</button>
                       <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button>
                       {(item.status === "draft" || item.status === "pending") ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
-                      {getExperimentStatusAction(item.status) ? <button type="button" data-experiment-lifecycle={item.status} onClick={() => updateExperimentLifecycle(item)}>{getExperimentStatusAction(item.status)?.action}</button> : null}
+                      {getExperimentStatusActions(item.status).map((action) => <button type="button" key={action.next} data-experiment-lifecycle={`${item.status}-${action.next}`} onClick={() => updateExperimentLifecycle(item, action)}>{action.action}</button>)}
                       {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
                     </div>
                   </td>
