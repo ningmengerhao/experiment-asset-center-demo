@@ -46,6 +46,7 @@ import {
   calculateCreateSampleAssessment,
   canDeleteExperiment,
   clearCreateDraft,
+  createDraftFromExperimentRecord,
   createShortSeedSuffix,
   createDefaultDraft,
   createHash as createExperimentHash,
@@ -1523,6 +1524,20 @@ function App() {
     showToast(`正在编辑草稿：${record.name}`);
   }
 
+  function duplicateExperimentRecord(record: ExperimentRecord) {
+    const sourceDraft = createDraftFromExperimentRecord(record);
+    const draft = { ...sourceDraft, recordId: "", savedStep: "basic" as CreateStep, basic: { ...sourceDraft.basic, name: `${record.name}_copy` } };
+    const copiedRecord = createLocalExperimentRecord(draft, "draft");
+    const persistedDraft = { ...draft, recordId: copiedRecord.id };
+    const nextRecord = { ...copiedRecord, createDraft: persistedDraft };
+    setCreatedExperiments((current) => {
+      const nextRecords = [nextRecord, ...current];
+      saveCreatedRecords(nextRecords);
+      return nextRecords;
+    });
+    showToast(`已复制为草稿：${persistedDraft.basic.name}`);
+  }
+
   function completeCreateExperiment() {
     const errors = validateCreateStep(createDraft, "basic");
     if (errors.length || !createDraft.seed.selectedSeed) {
@@ -2781,6 +2796,7 @@ function App() {
                   <td>
                     <div className="row-actions">
                       <button type="button" onClick={() => openDetail(item)}>查看详情</button>
+                      <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button>
                       {(item.status === "draft" || item.status === "pending") ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                       {getExperimentStatusAction(item.status) ? <button type="button" data-experiment-lifecycle={item.status} onClick={() => updateExperimentLifecycle(item)}>{getExperimentStatusAction(item.status)?.action}</button> : null}
                       {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}

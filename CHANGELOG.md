@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-02 - Experiment Copy Drafts (v0.5.1)
+
+Added:
+
+- Added a copy action for every ledger record regardless of lifecycle status.
+- Copying creates an independent browser-local draft named `<original>_copy`, preserves the original record, and carries a complete editable creation snapshot into the new draft.
+- Added pure logic, UI structure, and browser-flow regression coverage for copied drafts.
+
 ## 2026-09-02 - Lifecycle Status and Custom Seed Validation (v0.5.0)
 
 Changed:

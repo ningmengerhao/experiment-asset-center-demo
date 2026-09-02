@@ -570,6 +570,8 @@ async function run() {
     await physicalClick("[data-create-complete]");
     await waitFor("wizard completion returns to ledger", () => evaluate(`location.hash === "#list" && document.body.textContent.includes("新增首购引导")`));
     assert.equal(await evaluate(`document.body.textContent.includes("新增首购引导") && document.body.textContent.includes("待上线") && Boolean(document.querySelector('[data-experiment-lifecycle="pending"]'))`), true, "Completing an edited draft must create a pending-launch record with an online action.");
+    await physicalClick("[data-duplicate-experiment]");
+    await waitFor("ledger copy creates a draft", () => evaluate(`document.body.textContent.includes("新增首购引导_copy") && Boolean(document.querySelector("[data-delete-experiment]"))`));
     await physicalClick("[data-open-create-experiment]");
     await physicalClick('[data-create-method="direct"]');
     await waitFor("new experiment starts blank", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === ""`));

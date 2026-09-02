@@ -6,6 +6,7 @@ import {
   CREATED_RECORDS_STORAGE_KEY,
   CREATE_DRAFT_STORAGE_KEY,
   clearCreateDraft,
+  createDraftFromExperimentRecord,
   createShortSeedSuffix,
   getExperimentStatusAction,
   createDefaultDraft,
@@ -121,6 +122,21 @@ const migratedRecord = normalizeCreatedRecords([{
 assert.equal(migratedRecord.status, "pending");
 assert.equal(migratedRecord.createDraft.recordId, "LOCAL-OLD-001");
 assert.equal(migratedRecord.createDraft.seed.selectedSeed, "增长_用户_1234");
+
+const copiedDraft = createDraftFromExperimentRecord({
+  id: "EXP-COPY-001",
+  name: "原实验",
+  businessLine: "会员",
+  owner: "陈露",
+  coreMetric: "开通率",
+  guardrailMetric: "退订率",
+  metricConfig: { baseline: 6.4, mde: 0.28, confidence: 95, power: 80, dailyTraffic: 96000 },
+  sampleDefinition: { domain: "会员", unit: "用户" },
+  checkSnapshot: { target: "member_seed:01" },
+});
+assert.equal(copiedDraft.recordId, "EXP-COPY-001");
+assert.equal(copiedDraft.basic.name, "原实验");
+assert.equal(copiedDraft.seed.selectedSeed, "member_seed:01");
 
 assert.equal(saveCreatedRecords([{ id: "LOCAL-001" }], storage), true);
 assert.deepEqual(loadCreatedRecords(storage), [{ id: "LOCAL-001" }]);

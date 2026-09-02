@@ -38,5 +38,6 @@ export function loadCreateDraft(storage?: Storage): CreateExperimentDraft | null
 export function saveCreateDraft(draft: CreateExperimentDraft, storage?: Storage): boolean;
 export function clearCreateDraft(storage?: Storage): void;
 export function loadCreatedRecords(storage?: Storage): unknown[];
+export function createDraftFromExperimentRecord(record: unknown): CreateExperimentDraft;
 export function normalizeCreatedRecords(records: unknown): unknown[];
 export function saveCreatedRecords(records: unknown[], storage?: Storage): boolean;

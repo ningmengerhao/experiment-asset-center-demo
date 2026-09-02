@@ -259,22 +259,28 @@ export function loadCreatedRecords(storage = globalThis.localStorage) {
   }
 }
 
+export function createDraftFromExperimentRecord(record) {
+  const defaults = createDefaultDraft();
+  const selectedSeed = record?.checkSnapshot?.target && record.checkSnapshot.target !== "待生成" ? record.checkSnapshot.target : "";
+  return {
+    ...defaults,
+    ...(record?.createDraft ?? {}),
+    recordId: record?.id ?? "",
+    savedStep: record?.createDraft?.savedStep ?? "validation",
+    basic: { ...defaults.basic, ...record?.createDraft?.basic, name: record?.name ?? "", businessLine: record?.businessLine ?? defaults.basic.businessLine, domain: record?.sampleDefinition?.domain ?? record?.businessLine ?? defaults.basic.domain, owner: record?.owner ?? "", coreMetric: record?.coreMetric ?? "", guardrailMetric: record?.guardrailMetric ?? "" },
+    sample: { ...defaults.sample, ...record?.createDraft?.sample, baseline: record?.metricConfig?.baseline ?? defaults.sample.baseline, mde: record?.metricConfig?.mde ?? defaults.sample.mde, confidence: record?.metricConfig?.confidence ?? defaults.sample.confidence, power: record?.metricConfig?.power ?? defaults.sample.power, dailyTraffic: record?.metricConfig?.dailyTraffic ?? defaults.sample.dailyTraffic },
+    seed: { ...defaults.seed, ...record?.createDraft?.seed, sampleUnit: record?.sampleDefinition?.unit ?? defaults.seed.sampleUnit, selectedSeed, generated: { ...defaults.seed.generated, ...record?.createDraft?.seed?.generated } },
+    validation: { ...defaults.validation, ...record?.createDraft?.validation },
+  };
+}
+
 export function normalizeCreatedRecords(records) {
   if (!Array.isArray(records)) return [];
   return records.map((record) => {
     if (!record || typeof record !== "object") return record;
     const isLegacyCompletedLocal = record.sourcePlatform === "直接新增" && record.status === "paused" && record.reviewSummary?.conclusion === "已完成本地新增向导与上线前检查。";
     if (!isLegacyCompletedLocal) return record;
-    const defaults = createDefaultDraft();
-    const selectedSeed = record.checkSnapshot?.target && record.checkSnapshot.target !== "待生成" ? record.checkSnapshot.target : "";
-    const draft = record.createDraft ?? {
-      ...defaults,
-      recordId: record.id ?? "",
-      savedStep: "validation",
-      basic: { ...defaults.basic, name: record.name ?? "", businessLine: record.businessLine ?? defaults.basic.businessLine, domain: record.sampleDefinition?.domain ?? record.businessLine ?? defaults.basic.domain, owner: record.owner ?? "", coreMetric: record.coreMetric ?? "", guardrailMetric: record.guardrailMetric ?? "" },
-      sample: { ...defaults.sample, baseline: record.metricConfig?.baseline ?? defaults.sample.baseline, mde: record.metricConfig?.mde ?? defaults.sample.mde, confidence: record.metricConfig?.confidence ?? defaults.sample.confidence, power: record.metricConfig?.power ?? defaults.sample.power, dailyTraffic: record.metricConfig?.dailyTraffic ?? defaults.sample.dailyTraffic },
-      seed: { ...defaults.seed, sampleUnit: record.sampleDefinition?.unit ?? defaults.seed.sampleUnit, selectedSeed },
-    };
+    const draft = createDraftFromExperimentRecord(record);
     return { ...record, status: "pending", createDraft: draft };
   });
 }
