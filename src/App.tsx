@@ -72,7 +72,7 @@ import {
   validateAlertRule,
 } from "./monitoring.mjs";
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
-import { TEST_ACCOUNTS, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateSampleSql } from "./demo-access.mjs";
+import { TEST_ACCOUNTS, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
@@ -136,6 +136,8 @@ interface SampleDefinition {
   source: string;
   window: string;
   unit: string;
+  filterCondition?: string;
+  finalSql?: string;
 }
 
 interface ReviewSummary {
@@ -1370,7 +1372,9 @@ function App() {
   }
 
   function saveCreateProgress(step = createStep) {
-    const draft = { ...createDraft, savedStep: step };
+    const guardrailMetricIds = createDraft.basic.guardrailMetricIds.filter(Boolean);
+    const guardrailMetric = (demoState.metrics as any[]).filter((metric) => guardrailMetricIds.includes(metric.id)).map((metric) => metric.name).join("、");
+    const draft = { ...createDraft, savedStep: step, basic: { ...createDraft.basic, guardrailMetricIds, guardrailMetric }, sample: { ...createDraft.sample, guardrailCount: guardrailMetricIds.length } };
     const record = createLocalExperimentRecord(draft, "draft");
     const nextDraft = { ...draft, recordId: record.id };
     const nextRecord = { ...record, createDraft: nextDraft };
@@ -1403,6 +1407,8 @@ function App() {
         const result = validateSampleSql(range.sql);
         if (!result.valid) return showToast(result.error);
       }
+      const filterResult = validateFilterCondition(range.filterCondition);
+      if (!filterResult.valid) return showToast(filterResult.error);
       if (range.sourceKind === "task" && !range.taskId.trim()) return showToast("请输入推送任务 ID");
     }
     const errors = validateCreateStep(createDraft, createStep);
@@ -1444,15 +1450,37 @@ function App() {
 
   function selectCoreMetric(metric: any) {
     if (!can("metric.view", metric)) return showToast("没有该指标的查看权限，可在我的权限中申请");
-    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, coreMetricId: metric.id, coreMetric: metric.name } }));
+    setCreateDraft((current) => {
+      const guardrailMetricIds = current.basic.guardrailMetricIds.filter((id) => id !== metric.id);
+      const guardrailMetric = (demoState.metrics as any[]).filter((item) => guardrailMetricIds.includes(item.id)).map((item) => item.name).join("、");
+      return { ...current, basic: { ...current.basic, coreMetricId: metric.id, coreMetric: metric.name, guardrailMetricIds, guardrailMetric }, sample: { ...current.sample, guardrailCount: guardrailMetricIds.filter(Boolean).length } };
+    });
   }
 
-  function toggleGuardrailMetric(metric: any) {
+  function setGuardrailMetric(index: number, metricId: string) {
+    const metric = (demoState.metrics as any[]).find((item) => item.id === metricId);
+    if (!metric) return;
     if (!can("metric.view", metric)) return showToast("没有该指标的查看权限，可在我的权限中申请");
     setCreateDraft((current) => {
-      const guardrailMetricIds = current.basic.guardrailMetricIds.includes(metric.id) ? current.basic.guardrailMetricIds.filter((id) => id !== metric.id) : [...current.basic.guardrailMetricIds, metric.id];
+      if (metric.id === current.basic.coreMetricId || current.basic.guardrailMetricIds.some((id, currentIndex) => id === metric.id && currentIndex !== index)) {
+        showToast("同一实验中指标只能选择一次");
+        return current;
+      }
+      const guardrailMetricIds = current.basic.guardrailMetricIds.map((id, currentIndex) => currentIndex === index ? metric.id : id);
       const guardrailMetric = (demoState.metrics as any[]).filter((item) => guardrailMetricIds.includes(item.id)).map((item) => item.name).join("、");
-      return { ...current, basic: { ...current.basic, guardrailMetricIds, guardrailMetric } };
+      return { ...current, basic: { ...current.basic, guardrailMetricIds, guardrailMetric }, sample: { ...current.sample, guardrailCount: guardrailMetricIds.filter(Boolean).length } };
+    });
+  }
+
+  function addGuardrailMetric() {
+    setCreateDraft((current) => ({ ...current, basic: { ...current.basic, guardrailMetricIds: [...current.basic.guardrailMetricIds, ""] } }));
+  }
+
+  function removeGuardrailMetric(index: number) {
+    setCreateDraft((current) => {
+      const guardrailMetricIds = current.basic.guardrailMetricIds.filter((_, currentIndex) => currentIndex !== index);
+      const guardrailMetric = (demoState.metrics as any[]).filter((item) => guardrailMetricIds.includes(item.id)).map((item) => item.name).join("、");
+      return { ...current, basic: { ...current.basic, guardrailMetricIds, guardrailMetric }, sample: { ...current.sample, guardrailCount: guardrailMetricIds.filter(Boolean).length } };
     });
   }
 
@@ -1537,9 +1565,11 @@ function App() {
     const id = draft.recordId || `LOCAL-${now.toISOString().slice(2, 10).replace(/-/g, "")}-${String(now.getTime()).slice(-4)}`;
     const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
     const coreMetric = (demoState.metrics as any[]).find((metric) => metric.id === draft.basic.coreMetricId);
-    const guardrailMetrics = (demoState.metrics as any[]).filter((metric) => draft.basic.guardrailMetricIds.includes(metric.id));
+    const guardrailMetricIds = draft.basic.guardrailMetricIds.filter(Boolean);
+    const guardrailMetrics = (demoState.metrics as any[]).filter((metric) => guardrailMetricIds.includes(metric.id));
     const sampleSource = (demoState.sampleSources as any[]).find((source) => source.id === draft.basic.sampleRange.sourceId);
     const historyWindow = `${draft.basic.sampleRange.startDate} 至 ${draft.basic.sampleRange.endDate}`;
+    const finalSql = draft.basic.sampleRange.sourceKind === "sql" ? appendFilterCondition(draft.basic.sampleRange.sql, draft.basic.sampleRange.filterCondition) : "";
     return {
       id,
       name: draft.basic.name.trim() || "未命名草稿",
@@ -1560,7 +1590,7 @@ function App() {
       guardrailMetric: guardrailMetrics.length ? guardrailMetrics.map((metric) => `${metric.name} v${metric.version}`).join("、") : draft.basic.guardrailMetric.trim() || "待填写",
       stageStatus: "实验前",
       metricConfig: { metricType: "转化率", baseline: draft.sample.baseline, mde: draft.sample.mde, confidence: draft.sample.confidence, power: draft.sample.power, dailyTraffic: draft.sample.dailyTraffic },
-      sampleDefinition: { domain: draft.basic.domain, source: sampleSource?.name ?? (draft.basic.sampleRange.sourceKind === "task" ? draft.basic.sampleRange.taskId : "自定义 SQL"), window: historyWindow, unit: draft.seed.sampleUnit },
+      sampleDefinition: { domain: draft.basic.domain, source: sampleSource?.name ?? (draft.basic.sampleRange.sourceKind === "task" ? draft.basic.sampleRange.taskId : "自定义 SQL"), window: historyWindow, unit: draft.seed.sampleUnit, filterCondition: draft.basic.sampleRange.filterCondition, finalSql },
       reviewSummary: { conclusion: status === "draft" ? "本地草稿，待继续填写和完成校验。" : status === "pending" ? "已完成新增实验配置，等待上线。" : "实验已进入生命周期管理。", tags: [status === "draft" ? "草稿" : status === "pending" ? "待上线" : "直接新增", coreMetric ? `${coreMetric.id} v${coreMetric.version}` : "待选指标", sampleSource?.id ?? "自定义样本", draft.seed.selectedSeed || "未选择种子", draft.sample.splitGroups.map((group) => `${group.label}:${group.ratio}%`).join(" ")], similarExperiments: [], nextAction: status === "draft" ? "编辑草稿后继续" : status === "pending" ? "确认后上线" : "查看放量与校验快照" },
       alertStatus: "info",
       rolloutEvents: [],
@@ -1568,7 +1598,7 @@ function App() {
       importBatchId: "-",
       checkSnapshot: { target: draft.seed.selectedSeed || "待生成", preAA: status === "draft" ? "待校验" : "已通过", uniformity: status === "draft" ? "待校验" : "已通过", orthogonality: status === "draft" ? "待校验" : "已通过", sampleScope: `${draft.basic.domain} · ${draft.seed.sampleUnit}`, updatedAt: timestamp },
       auditEvents: [{ time: timestamp, operator: draft.basic.owner.trim() || "当前用户", action: status === "draft" ? "保存新增实验草稿" : status === "pending" ? "完成新增实验配置，等待上线" : "更新实验状态" }],
-      ...(status === "draft" || status === "pending" ? { createDraft: { ...draft, recordId: id, savedStep: status === "pending" ? "validation" : draft.savedStep } } : {}),
+      ...(status === "draft" || status === "pending" ? { createDraft: { ...draft, basic: { ...draft.basic, guardrailMetricIds }, sample: { ...draft.sample, guardrailCount: guardrailMetricIds.length }, recordId: id, savedStep: status === "pending" ? "validation" : draft.savedStep } } : {}),
     };
   }
 
@@ -2321,7 +2351,8 @@ function App() {
                 <div><dt>样本来源</dt><dd>{selected.sampleDefinition.source}</dd></div>
                 <div><dt>历史时间</dt><dd>{selected.sampleDefinition.window}</dd></div>
                 <div><dt>来源类型</dt><dd>{selected.createDraft.basic.sampleRange.sourceKind === "task" ? "推送任务" : "SQL"}</dd></div>
-                <div><dt>样本规则</dt><dd className="snapshot-rule">{selected.createDraft.basic.sampleRange.sourceKind === "task" ? selected.createDraft.basic.sampleRange.taskId : selected.createDraft.basic.sampleRange.sql}</dd></div>
+                <div><dt>过滤条件</dt><dd className="snapshot-rule">{selected.sampleDefinition.filterCondition || "未设置"}</dd></div>
+                <div><dt>样本规则</dt><dd className="snapshot-rule">{selected.createDraft.basic.sampleRange.sourceKind === "task" ? `${selected.createDraft.basic.sampleRange.taskId}${selected.sampleDefinition.filterCondition ? ` · ${selected.sampleDefinition.filterCondition}` : ""}` : selected.sampleDefinition.finalSql || appendFilterCondition(selected.createDraft.basic.sampleRange.sql, selected.createDraft.basic.sampleRange.filterCondition)}</dd></div>
               </dl>
             </section> : null}
             <section className="drawer-section">
@@ -2653,12 +2684,17 @@ function App() {
     const ruleConflict = selectedCandidate ? selectedCandidate.conflictRisk >= 8 || scopeExperiments.some((item) => item.trafficLayer === seedBase) : false;
     const visibleMetrics = (demoState.metrics as any[]).filter((metric) => metric.status === "active" && can("metric.view", metric));
     const restrictedMetrics = (demoState.metrics as any[]).filter((metric) => metric.status === "active" && !can("metric.view", metric));
-    const coreMetrics = visibleMetrics.filter((metric) => metric.type === "core");
-    const guardrailMetrics = visibleMetrics.filter((metric) => metric.type === "guardrail");
+    const selectedGuardrailMetricIds = createDraft.basic.guardrailMetricIds.filter(Boolean);
+    const coreMetricOptions = visibleMetrics.filter((metric) => metric.id === createDraft.basic.coreMetricId || !selectedGuardrailMetricIds.includes(metric.id));
+    const getGuardrailMetricOptions = (index: number) => {
+      const otherGuardrailMetricIds = createDraft.basic.guardrailMetricIds.filter((id, currentIndex) => currentIndex !== index && Boolean(id));
+      return visibleMetrics.filter((metric) => metric.id !== createDraft.basic.coreMetricId && (metric.id === createDraft.basic.guardrailMetricIds[index] || !otherGuardrailMetricIds.includes(metric.id)));
+    };
     const availableSources = (demoState.sampleSources as any[]).filter((source) => can("sample.use", source));
     const restrictedSources = (demoState.sampleSources as any[]).filter((source) => !can("sample.use", source));
     const selectedSource = availableSources.find((source) => source.id === createDraft.basic.sampleRange.sourceId) ?? availableSources[0] ?? null;
     const historySnapshot = resolveHistoricalSnapshot(selectedSource, createDraft.basic.sampleRange.startDate, createDraft.basic.sampleRange.endDate);
+    const finalSampleSql = createDraft.basic.sampleRange.sourceKind === "sql" ? appendFilterCondition(createDraft.basic.sampleRange.sql, createDraft.basic.sampleRange.filterCondition) : "";
     const defaultSampleFields: Array<{ key: CreateSampleField; label: string }> = [
       { key: "baseline", label: "基准指标 %" }, { key: "mde", label: "MDE 百分点" }, { key: "confidence", label: "置信水平 %" }, { key: "power", label: "统计功效 %" },
       { key: "dailyTraffic", label: "日可用流量" }, { key: "identityCoverage", label: "身份覆盖率 %" }, { key: "maxDays", label: "最长可接受周期" },
@@ -2702,8 +2738,36 @@ function App() {
               <label className="field vertical"><span>计划开始时间</span><input type="date" value={createDraft.basic.planStartDate} onChange={(event) => updateCreateBasic("planStartDate", event.target.value)} /></label>
               <label className="field vertical wide-field"><span>实验假设</span><textarea data-create-basic="hypothesis" rows={4} value={createDraft.basic.hypothesis} onChange={(event) => updateCreateBasic("hypothesis", event.target.value)} /></label>
             </div>
-            <section className="design-section" data-create-metric-selection><h3>指标选择</h3><div className="form-grid"><label className="field vertical"><span>核心指标</span><select data-create-core-metric value={createDraft.basic.coreMetricId} onChange={(event) => { const metric = coreMetrics.find((item) => item.id === event.target.value); if (metric) selectCoreMetric(metric); }}><option value="">请选择核心指标</option>{coreMetrics.map((metric) => <option key={metric.id} value={metric.id}>{metric.name} · {metric.updatedAt}</option>)}</select></label><div className="metric-chip-field"><span>护栏指标</span><div>{guardrailMetrics.map((metric) => <label key={metric.id}><input type="checkbox" checked={createDraft.basic.guardrailMetricIds.includes(metric.id)} onChange={() => toggleGuardrailMetric(metric)} />{metric.name}</label>)}</div></div></div>{restrictedMetrics.length ? <p className="hint">受限指标：{restrictedMetrics.map((metric) => <button key={metric.id} type="button" className="link-button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: metric.id, permission: "metric.view" }); navigateToTab("access"); }}>{metric.id}</button>)}</p> : null}</section>
-            <section className="design-section" data-create-sample-range><h3>样本范围与历史时间</h3><div className="form-grid"><label className="field vertical"><span>样本来源</span><select value={createDraft.basic.sampleRange.sourceId} onChange={(event) => { const source = availableSources.find((item) => item.id === event.target.value); updateSampleRange({ sourceId: event.target.value, sourceKind: source?.kind ?? "sql", taskId: source?.taskId ?? "" }); }}><option value="">请选择样本来源</option>{availableSources.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.frequency}</option>)}</select></label><label className="field vertical"><span>随机化单位</span><select value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label><label className="field vertical"><span>历史开始日期</span><input type="date" value={createDraft.basic.sampleRange.startDate} onChange={(event) => updateSampleRange({ startDate: event.target.value })} /></label><label className="field vertical"><span>历史结束日期</span><input type="date" value={createDraft.basic.sampleRange.endDate} onChange={(event) => updateSampleRange({ endDate: event.target.value })} /></label><label className="field vertical wide-field"><span>{createDraft.basic.sampleRange.sourceKind === "sql" ? "样本 SQL" : "推送任务 ID"}</span>{createDraft.basic.sampleRange.sourceKind === "sql" ? <textarea data-create-sample-sql rows={4} value={createDraft.basic.sampleRange.sql} onChange={(event) => updateSampleRange({ sql: event.target.value })} /> : <input data-create-sample-task value={createDraft.basic.sampleRange.taskId} onChange={(event) => updateSampleRange({ taskId: event.target.value })} />}</label><label className="field vertical"><span>包含条件</span><input value={createDraft.basic.sampleRange.includeCondition} onChange={(event) => updateSampleRange({ includeCondition: event.target.value })} /></label><label className="field vertical"><span>排除条件</span><input value={createDraft.basic.sampleRange.excludeCondition} onChange={(event) => updateSampleRange({ excludeCondition: event.target.value })} /></label></div><div className="history-snapshot"><span>历史样本快照</span><strong>基线 {historySnapshot.baseline}%</strong><strong>日流量 {formatNumber(historySnapshot.dailyTraffic)}</strong><strong>覆盖率 {historySnapshot.coverage}%</strong><strong>稳定 {historySnapshot.stableDays} 天</strong><em>{historySnapshot.startDate} 至 {historySnapshot.endDate} · {historySnapshot.updatedAt || "无更新时间"}</em></div></section>
+            <section className="design-section" data-create-metric-selection>
+              <h3>指标选择</h3>
+              <div className="form-grid">
+                <label className="field vertical">
+                  <span>核心指标</span>
+                  <select data-create-core-metric value={createDraft.basic.coreMetricId} onChange={(event) => { const metric = coreMetricOptions.find((item) => item.id === event.target.value); if (metric) selectCoreMetric(metric); }}>
+                    <option value="">请选择核心指标</option>
+                    {coreMetricOptions.map((metric) => <option key={metric.id} value={metric.id}>{metric.name} · {metric.updatedAt}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="guardrail-metric-field">
+                <div className="guardrail-metric-heading"><span>护栏指标（可选）</span><button className="inline-add-button" data-create-guardrail-add type="button" aria-label="新增护栏指标" title="新增护栏指标" onClick={addGuardrailMetric}><Plus size={15} /></button></div>
+                {createDraft.basic.guardrailMetricIds.map((metricId, index) => <div className="guardrail-metric-row" key={`guardrail-${index}`}><select data-create-guardrail-select={index} value={metricId} onChange={(event) => setGuardrailMetric(index, event.target.value)}><option value="">请选择护栏指标</option>{getGuardrailMetricOptions(index).map((metric) => <option key={metric.id} value={metric.id}>{metric.name} · {metric.updatedAt}</option>)}</select><button className="icon-button guardrail-metric-remove" data-create-guardrail-remove={index} type="button" aria-label="删除护栏指标" title="删除护栏指标" onClick={() => removeGuardrailMetric(index)}><X size={15} /></button></div>)}
+              </div>
+              {restrictedMetrics.length ? <p className="hint">受限指标：{restrictedMetrics.map((metric) => <button key={metric.id} type="button" className="link-button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: metric.id, permission: "metric.view" }); navigateToTab("access"); }}>{metric.id}</button>)}</p> : null}
+            </section>
+            <section className="design-section" data-create-sample-range>
+              <h3>样本范围与历史时间</h3>
+              <div className="form-grid">
+                <label className="field vertical"><span>样本来源</span><select value={createDraft.basic.sampleRange.sourceId} onChange={(event) => { const source = availableSources.find((item) => item.id === event.target.value); updateSampleRange({ sourceId: event.target.value, sourceKind: source?.kind ?? "sql", taskId: source?.taskId ?? "" }); }}><option value="">请选择样本来源</option>{availableSources.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.frequency}</option>)}</select></label>
+                <label className="field vertical"><span>随机化单位</span><select value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
+                <label className="field vertical"><span>历史开始日期</span><input type="date" value={createDraft.basic.sampleRange.startDate} onChange={(event) => updateSampleRange({ startDate: event.target.value })} /></label>
+                <label className="field vertical"><span>历史结束日期</span><input type="date" value={createDraft.basic.sampleRange.endDate} onChange={(event) => updateSampleRange({ endDate: event.target.value })} /></label>
+                <label className="field vertical wide-field"><span>{createDraft.basic.sampleRange.sourceKind === "sql" ? "样本 SQL" : "推送任务 ID"}</span>{createDraft.basic.sampleRange.sourceKind === "sql" ? <textarea data-create-sample-sql rows={4} value={createDraft.basic.sampleRange.sql} onChange={(event) => updateSampleRange({ sql: event.target.value })} /> : <input data-create-sample-task value={createDraft.basic.sampleRange.taskId} onChange={(event) => updateSampleRange({ taskId: event.target.value })} />}</label>
+                <label className="field vertical wide-field"><span>过滤条件</span><textarea data-create-filter-condition rows={3} placeholder="例如：entry = 'new_home' AND is_test_user = 0" value={createDraft.basic.sampleRange.filterCondition} onChange={(event) => updateSampleRange({ filterCondition: event.target.value })} /></label>
+              </div>
+              <div className="history-snapshot"><span>历史样本快照</span><strong>基线 {historySnapshot.baseline}%</strong><strong>日流量 {formatNumber(historySnapshot.dailyTraffic)}</strong><strong>覆盖率 {historySnapshot.coverage}%</strong><strong>稳定 {historySnapshot.stableDays} 天</strong><em>{historySnapshot.startDate} 至 {historySnapshot.endDate} · {historySnapshot.updatedAt || "无更新时间"}</em></div>
+              {finalSampleSql ? <pre className="sample-sql-preview" data-create-final-sql>{finalSampleSql}</pre> : null}
+            </section>
           </Panel>
           {!selectedSource && restrictedSources.length ? <p className="hint">当前账号没有可用样本来源。受限来源：{restrictedSources.map((source) => <button key={source.id} type="button" className="link-button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "sampleSource", resourceId: source.id, permission: "sample.use" }); navigateToTab("access"); }}>{source.id}</button>)}</p> : null}
           {renderFooter()}
@@ -2964,9 +3028,32 @@ function App() {
       showToast("指标已停用；已被实验引用的指标保留历史版本");
     };
     return <section className="module-page metric-library" data-page-id="metrics" data-page-core="metric-library">
-      <div className="page-heading"><div><h1>指标管理</h1><p>维护指标口径、来源、更新频率、业务域和资源级查看/编辑权限。</p></div>{activeAccount.role === "admin" || metrics.some((metric) => can("metric.edit", metric)) ? <button className="primary-button" type="button" onClick={() => setMetricDraft({ id: "", name: "", type: "core", domain: activeAccount.domains[0] ?? "增长", definition: "", unit: "%", denominator: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [activeAccount.id], editors: [activeAccount.id] })}><Plus size={16} /> 新增指标</button> : null}</div>
-      <div className="metric-library-layout"><section className="metric-list">{metrics.map((metric) => { const permitted = can("metric.view", metric) || can("metric.edit", metric); return <button key={metric.id} type="button" className={selectedMetric?.id === metric.id ? "active" : ""} onClick={() => { setSelectedMetricId(metric.id); setMetricDraft(null); }}><span className={`quality-badge ${metric.status === "active" ? "passed" : "warning"}`}>{metric.status === "active" ? "启用" : "停用"}</span><strong>{permitted ? metric.name : `受限指标 ${metric.id}`}</strong><small>{metric.domain} · {metric.type === "core" ? "核心" : metric.type === "guardrail" ? "护栏" : "观察"}</small></button>; })}</section>
-      <section className="metric-editor">{draft ? <><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.name} onChange={(event) => setMetricDraft({ ...draft, name: event.target.value })} /></label><label className="field vertical"><span>指标类型</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.type} onChange={(event) => setMetricDraft({ ...draft, type: event.target.value })}><option value="core">核心指标</option><option value="guardrail">护栏指标</option><option value="observe">观察指标</option></select></label><label className="field vertical"><span>业务域</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.domain} onChange={(event) => setMetricDraft({ ...draft, domain: event.target.value })}>{["增长", "会员", "推荐", "交易", "搜索"].map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical"><span>单位</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.unit} onChange={(event) => setMetricDraft({ ...draft, unit: event.target.value })} /></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!canEditSelected && Boolean(draft.id)} rows={3} value={draft.definition} onChange={(event) => setMetricDraft({ ...draft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.sourceType} onChange={(event) => setMetricDraft({ ...draft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.sourceRef} onChange={(event) => setMetricDraft({ ...draft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.refreshFrequency} onChange={(event) => setMetricDraft({ ...draft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label><label className="field vertical"><span>查看权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.viewers ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, viewers: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label><label className="field vertical"><span>编辑权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.editors ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, editors: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label></div><div className="drawer-actions">{canEditSelected || !draft.id ? <button className="primary-button" type="button" onClick={saveMetric}>保存指标</button> : <button className="ghost-button" type="button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: draft.id, permission: "metric.edit" }); navigateToTab("access"); }}>申请编辑权限</button>}{selectedMetric && canEditSelected ? <button className="ghost-button" type="button" onClick={deactivateMetric}>停用指标</button> : null}</div></> : <p className="hint">请选择一个指标。</p>}</section></div>
+      <div className="page-heading">
+        <div><h1>指标管理</h1><p>维护指标口径、来源、更新频率、业务域和资源级查看/编辑权限。</p></div>
+        {activeAccount.role === "admin" || metrics.some((metric) => can("metric.edit", metric)) ? <button className="primary-button" type="button" onClick={() => setMetricDraft({ id: "", name: "", domain: activeAccount.domains[0] ?? "增长", definition: "", unit: "%", denominator: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [activeAccount.id], editors: [activeAccount.id] })}><Plus size={16} /> 新增指标</button> : null}
+      </div>
+      <div className="metric-library-layout">
+        <section className="metric-list">
+          {metrics.map((metric) => {
+            const permitted = can("metric.view", metric) || can("metric.edit", metric);
+            return <button key={metric.id} type="button" className={selectedMetric?.id === metric.id ? "active" : ""} onClick={() => { setSelectedMetricId(metric.id); setMetricDraft(null); }}><span className={`quality-badge ${metric.status === "active" ? "passed" : "warning"}`}>{metric.status === "active" ? "启用" : "停用"}</span><strong>{permitted ? metric.name : `受限指标 ${metric.id}`}</strong><small>{metric.domain} · v{metric.version}</small></button>;
+          })}
+        </section>
+        <section className="metric-editor">{draft ? <>
+          <div className="form-grid">
+            <label className="field vertical"><span>指标名称</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.name} onChange={(event) => setMetricDraft({ ...draft, name: event.target.value })} /></label>
+            <label className="field vertical"><span>业务域</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.domain} onChange={(event) => setMetricDraft({ ...draft, domain: event.target.value })}>{["增长", "会员", "推荐", "交易", "搜索"].map((domain) => <option key={domain}>{domain}</option>)}</select></label>
+            <label className="field vertical"><span>单位</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.unit} onChange={(event) => setMetricDraft({ ...draft, unit: event.target.value })} /></label>
+            <label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!canEditSelected && Boolean(draft.id)} rows={3} value={draft.definition} onChange={(event) => setMetricDraft({ ...draft, definition: event.target.value })} /></label>
+            <label className="field vertical"><span>数据来源类型</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.sourceType} onChange={(event) => setMetricDraft({ ...draft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label>
+            <label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!canEditSelected && Boolean(draft.id)} value={draft.sourceRef} onChange={(event) => setMetricDraft({ ...draft, sourceRef: event.target.value })} /></label>
+            <label className="field vertical"><span>更新频率</span><select disabled={!canEditSelected && Boolean(draft.id)} value={draft.refreshFrequency} onChange={(event) => setMetricDraft({ ...draft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label>
+            <label className="field vertical"><span>查看权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.viewers ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, viewers: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
+            <label className="field vertical"><span>编辑权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.editors ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, editors: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
+          </div>
+          <div className="drawer-actions">{canEditSelected || !draft.id ? <button className="primary-button" type="button" onClick={saveMetric}>保存指标</button> : <button className="ghost-button" type="button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: draft.id, permission: "metric.edit" }); navigateToTab("access"); }}>申请编辑权限</button>}{selectedMetric && canEditSelected ? <button className="ghost-button" type="button" onClick={deactivateMetric}>停用指标</button> : null}</div>
+        </> : <p className="hint">请选择一个指标。</p>}</section>
+      </div>
     </section>;
   }
 

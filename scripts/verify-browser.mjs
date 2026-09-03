@@ -523,7 +523,17 @@ async function run() {
     await physicalClick("[data-create-core-metric]");
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-    await physicalClick('[data-create-metric-selection] input[type="checkbox"]');
+    await physicalClick("[data-create-guardrail-add]");
+    await waitFor("guardrail metric selector", () => evaluate(`document.querySelectorAll("[data-create-guardrail-select]").length === 1`));
+    await physicalClick('[data-create-guardrail-select="0"]');
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await physicalClick("[data-create-guardrail-add]");
+    await waitFor("second guardrail metric selector", () => evaluate(`document.querySelectorAll("[data-create-guardrail-select]").length === 2`));
+    await physicalClick('[data-create-guardrail-remove="1"]');
+    await waitFor("guardrail metric remove", () => evaluate(`document.querySelectorAll("[data-create-guardrail-select]").length === 1`));
+    await replaceText("[data-create-filter-condition]", "entry = 'new_home'");
+    await waitFor("final SQL filter preview", () => evaluate(`document.querySelector("[data-create-final-sql]")?.textContent.includes("AND (entry = 'new_home')")`));
     await physicalClick("[data-create-save]");
     await waitFor("saved draft remains on current step", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === "新增首购引导"`));
     await openUrl(`${distUrl}#list`);

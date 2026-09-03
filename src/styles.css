@@ -1368,6 +1368,44 @@ textarea:focus {
   font-size: 13px;
 }
 
+.guardrail-metric-field {
+  display: grid;
+  gap: 8px;
+  max-width: min(560px, 100%);
+}
+
+.guardrail-metric-heading,
+.guardrail-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guardrail-metric-heading {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.inline-add-button {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: var(--primary);
+  background: transparent;
+}
+
+.guardrail-metric-row select {
+  min-width: 0;
+  flex: 1;
+}
+
+.guardrail-metric-remove {
+  flex: 0 0 auto;
+}
+
 .history-snapshot {
   display: flex;
   flex-wrap: wrap;
@@ -1383,6 +1421,19 @@ textarea:focus {
 .history-snapshot em {
   color: var(--text-3);
   font-style: normal;
+}
+
+.sample-sql-preview {
+  max-width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  color: var(--text-2);
+  border: 1px solid var(--line-soft);
+  background: var(--bg);
+  font: 12px/1.5 Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .metric-library-layout {

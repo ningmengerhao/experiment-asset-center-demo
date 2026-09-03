@@ -149,7 +149,7 @@ export function createDefaultDraft() {
       planStartDate: "2026-09-10",
       coreMetricId: "",
       guardrailMetricIds: [],
-      sampleRange: { sourceKind: "sql", sourceId: "SRC-GROWTH-TABLE", sql: "SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'", taskId: "", startDate: "2026-08-19", endDate: "2026-09-01", includeCondition: "entry = 'new_home'", excludeCondition: "is_test_user = 0" },
+      sampleRange: { sourceKind: "sql", sourceId: "SRC-GROWTH-TABLE", sql: "SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'", taskId: "", startDate: "2026-08-19", endDate: "2026-09-01", filterCondition: "entry = 'new_home' AND NOT (is_test_user = 0)" },
       coreMetric: "",
       guardrailMetric: "",
       hypothesis: "",
@@ -164,7 +164,7 @@ export function createDefaultDraft() {
       identityCoverage: 88,
       maxDays: 21,
       stableDays: 21,
-      guardrailCount: 2,
+      guardrailCount: 0,
       businessValue: 3.5,
     },
     seed: {
@@ -210,11 +210,11 @@ export function validateCreateStep(draft, step) {
       ["owner", "负责人"],
       ["coreMetricId", "核心指标"],
       ["hypothesis", "实验假设"],
-    ].filter(([key]) => !String(draft.basic[key] ?? "").trim()).map(([, label]) => label).concat(Array.isArray(draft.basic.guardrailMetricIds) && draft.basic.guardrailMetricIds.length ? [] : ["护栏指标"]);
+    ].filter(([key]) => !String(draft.basic[key] ?? "").trim()).map(([, label]) => label);
   }
 
   if (step === "sample") {
-    const numericFields = ["baseline", "mde", "confidence", "power", "dailyTraffic", "identityCoverage", "maxDays", "stableDays", "guardrailCount", "businessValue"];
+    const numericFields = ["baseline", "mde", "confidence", "power", "dailyTraffic", "identityCoverage", "maxDays", "stableDays", "businessValue"];
     const invalidField = numericFields.find((key) => !Number.isFinite(Number(draft.sample[key])) || Number(draft.sample[key]) <= 0);
     return invalidField ? [invalidField] : validateSplitGroups(draft.sample.splitGroups);
   }
@@ -227,6 +227,19 @@ export function validateCreateStep(draft, step) {
   return [];
 }
 
+export function migrateFilterCondition(sampleRange, defaults = createDefaultDraft().basic.sampleRange) {
+  const value = sampleRange && typeof sampleRange === "object" ? sampleRange : {};
+  const { includeCondition, excludeCondition, filterCondition, ...rest } = value;
+  const include = String(includeCondition ?? "").trim();
+  const exclude = String(excludeCondition ?? "").trim();
+  const migrated = typeof filterCondition === "string"
+    ? filterCondition
+    : include && exclude
+      ? `(${include}) AND NOT (${exclude})`
+      : include || (exclude ? `NOT (${exclude})` : defaults.filterCondition);
+  return { ...defaults, ...rest, filterCondition: migrated };
+}
+
 export function loadCreateDraft(storage = globalThis.localStorage) {
   try {
     const value = storage?.getItem(CREATE_DRAFT_STORAGE_KEY);
@@ -234,7 +247,7 @@ export function loadCreateDraft(storage = globalThis.localStorage) {
     const parsed = JSON.parse(value);
     if (!parsed || typeof parsed !== "object" || !parsed.basic || !parsed.sample || !parsed.seed || !parsed.validation) return null;
     const defaults = createDefaultDraft();
-    const basic = { ...defaults.basic, ...parsed.basic, domain: parsed.basic.domain || parsed.seed.domain || parsed.basic.businessLine || defaults.basic.domain };
+    const basic = { ...defaults.basic, ...parsed.basic, sampleRange: migrateFilterCondition(parsed.basic.sampleRange, defaults.basic.sampleRange), domain: parsed.basic.domain || parsed.seed.domain || parsed.basic.businessLine || defaults.basic.domain };
     const splitGroups = normalizeSplitGroups(parsed.sample.splitGroups);
     const generated = parsed.seed.generated && typeof parsed.seed.generated === "object"
       ? { ...defaults.seed.generated, ...parsed.seed.generated, splitGroups: normalizeSplitGroups(parsed.seed.generated.splitGroups) }
@@ -280,7 +293,7 @@ export function createDraftFromExperimentRecord(record) {
     ...(record?.createDraft ?? {}),
     recordId: record?.id ?? "",
     savedStep: record?.createDraft?.savedStep ?? "validation",
-    basic: { ...defaults.basic, ...record?.createDraft?.basic, name: record?.name ?? "", businessLine: record?.businessLine ?? defaults.basic.businessLine, domain: record?.sampleDefinition?.domain ?? record?.businessLine ?? defaults.basic.domain, owner: record?.owner ?? "", coreMetric: record?.coreMetric ?? "", guardrailMetric: record?.guardrailMetric ?? "" },
+    basic: { ...defaults.basic, ...record?.createDraft?.basic, sampleRange: migrateFilterCondition(record?.createDraft?.basic?.sampleRange, defaults.basic.sampleRange), name: record?.name ?? "", businessLine: record?.businessLine ?? defaults.basic.businessLine, domain: record?.sampleDefinition?.domain ?? record?.businessLine ?? defaults.basic.domain, owner: record?.owner ?? "", coreMetric: record?.coreMetric ?? "", guardrailMetric: record?.guardrailMetric ?? "" },
     sample: { ...defaults.sample, ...record?.createDraft?.sample, baseline: record?.metricConfig?.baseline ?? defaults.sample.baseline, mde: record?.metricConfig?.mde ?? defaults.sample.mde, confidence: record?.metricConfig?.confidence ?? defaults.sample.confidence, power: record?.metricConfig?.power ?? defaults.sample.power, dailyTraffic: record?.metricConfig?.dailyTraffic ?? defaults.sample.dailyTraffic },
     seed: { ...defaults.seed, ...record?.createDraft?.seed, sampleUnit: record?.sampleDefinition?.unit ?? defaults.seed.sampleUnit, selectedSeed, generated: { ...defaults.seed.generated, ...record?.createDraft?.seed?.generated } },
     validation: { ...defaults.validation, ...record?.createDraft?.validation },

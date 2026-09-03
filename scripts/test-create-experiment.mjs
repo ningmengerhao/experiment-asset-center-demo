@@ -14,6 +14,7 @@ import {
   createHash,
   loadCreateDraft,
   loadCreatedRecords,
+  migrateFilterCondition,
   isSeedGenerationCurrent,
   isValidCustomSeed,
   normalizeCreateStep,
@@ -52,12 +53,12 @@ assert.equal(normalizeCreateStep("unknown"), "basic");
 assert.equal(createHash("validation"), "#create?step=validation");
 assert.equal(readCreateStep("#create?step=sample"), "sample");
 assert.equal(readCreateStep("#create?step=unsafe"), "basic");
-assert.deepEqual(validateCreateStep(draft, "basic"), ["实验名称", "负责人", "核心指标", "实验假设", "护栏指标"]);
+assert.deepEqual(validateCreateStep(draft, "basic"), ["实验名称", "负责人", "核心指标", "实验假设"]);
 
 const completedBasic = {
   ...draft,
   savedStep: "sample",
-  basic: { ...draft.basic, name: "新增首页引导", domain: "会员", owner: "赵晨", coreMetricId: "MET-003", guardrailMetricIds: ["MET-004"], coreMetric: "转化率", guardrailMetric: "投诉率", hypothesis: "新引导可提升转化" },
+  basic: { ...draft.basic, name: "新增首页引导", domain: "会员", owner: "赵晨", coreMetricId: "MET-003", guardrailMetricIds: [], coreMetric: "转化率", guardrailMetric: "", hypothesis: "新引导可提升转化" },
 };
 assert.deepEqual(validateCreateStep(completedBasic, "basic"), []);
 assert.deepEqual(validateCreateStep({ ...completedBasic, sample: { ...completedBasic.sample, dailyTraffic: 0 } }, "sample"), ["dailyTraffic"]);
@@ -68,7 +69,7 @@ const splitPlan = calculateSplitSamplePlan(100, [{ id: "a", label: "A", ratio: 7
 assert.equal(splitPlan.total, 1000);
 assert.equal(splitPlan.groups.reduce((total, group) => total + group.samples, 0), 1000);
 assert.equal(splitPlan.groups.find((group) => group.label === "C")?.samples, 100);
-const createAssessment = calculateCreateSampleAssessment({ ...draft.sample, splitGroups: [{ id: "a", label: "A", ratio: 70 }, { id: "b", label: "B", ratio: 30 }] });
+const createAssessment = calculateCreateSampleAssessment({ ...draft.sample, guardrailCount: 2, splitGroups: [{ id: "a", label: "A", ratio: 70 }, { id: "b", label: "B", ratio: 30 }] });
 assert.equal(createAssessment.splitMessage, "合计 100%");
 assert.equal(createAssessment.periodStatus, "passed");
 assert.equal(createAssessment.dimensions.every((item) => item.status === "passed"), true);
@@ -76,6 +77,7 @@ assert.equal(calculateCreateSampleAssessment({ ...draft.sample, splitGroups: [{ 
 assert.equal(calculateCreateSampleAssessment({ ...draft.sample, maxDays: 2.1 }).periodStatus, "warning");
 assert.equal(calculateCreateSampleAssessment({ ...draft.sample, maxDays: 1 }).periodStatus, "critical");
 assert.equal(calculateCreateSampleAssessment({ ...draft.sample, stableDays: 1 }).dimensions.find((item) => item.label === "基线稳定")?.status, "critical");
+assert.equal(calculateCreateSampleAssessment({ ...draft.sample, guardrailCount: 0 }).dimensions.find((item) => item.label === "护栏完整")?.status, "critical");
 const shortSuffixes = Array.from({ length: 12 }, (_, index) => createShortSeedSuffix("generation-key", index));
 assert.equal(shortSuffixes.every((suffix) => /^\d{4,8}$/.test(suffix)), true);
 assert.equal(new Set(shortSuffixes).size, shortSuffixes.length);
@@ -100,12 +102,21 @@ delete legacyDraft.basic.domain;
 legacyDraft.seed.domain = "推荐";
 delete legacyDraft.seed.generated;
 delete legacyDraft.sample.splitGroups;
+delete legacyDraft.basic.sampleRange.filterCondition;
+legacyDraft.basic.sampleRange.includeCondition = "entry = 'new_home'";
+legacyDraft.basic.sampleRange.excludeCondition = "is_test_user = 1";
 storage.setItem(CREATE_DRAFT_STORAGE_KEY, JSON.stringify(legacyDraft));
 const migratedDraft = loadCreateDraft(storage);
 assert.equal(migratedDraft?.basic.domain, "推荐");
 assert.equal(migratedDraft?.recordId, "");
 assert.deepEqual(migratedDraft?.sample.splitGroups.map((group) => group.ratio), [50, 50]);
 assert.equal(migratedDraft?.seed.generated.domain, "推荐");
+assert.equal(migratedDraft?.basic.sampleRange.filterCondition, "(entry = 'new_home') AND NOT (is_test_user = 1)");
+
+assert.equal(migrateFilterCondition({ includeCondition: "entry = 'new_home'", excludeCondition: "is_test_user = 1" }).filterCondition, "(entry = 'new_home') AND NOT (is_test_user = 1)");
+assert.equal(migrateFilterCondition({ includeCondition: "entry = 'new_home'" }).filterCondition, "entry = 'new_home'");
+assert.equal(migrateFilterCondition({ excludeCondition: "is_test_user = 1" }).filterCondition, "NOT (is_test_user = 1)");
+assert.equal(migrateFilterCondition({ filterCondition: "country = 'CN'" }).filterCondition, "country = 'CN'");
 
 const migratedRecord = normalizeCreatedRecords([{
   id: "LOCAL-OLD-001",

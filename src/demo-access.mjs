@@ -11,11 +11,11 @@ export const TEST_ACCOUNTS = [
 ];
 
 export const INITIAL_METRICS = [
-  { id: "MET-001", name: "首购转化率", type: "core", domain: "增长", definition: "首购成功用户 / 进入首购流程用户", unit: "%", denominator: "进入首购流程用户", version: 3, sourceType: "table", sourceRef: "growth.order_conversion_daily", refreshFrequency: "日更", updatedAt: "2026-09-02 08:30", freshness: "新鲜", owner: "赵晨", status: "active", viewers: ["business.liu", "owner.zhao", "analyst.wu"], editors: ["metric.editor.wu"] },
-  { id: "MET-002", name: "投诉率", type: "guardrail", domain: "增长", definition: "投诉用户 / 曝光用户", unit: "%", denominator: "曝光用户", version: 2, sourceType: "task", sourceRef: "TASK_GROWTH_COMPLAINT_01", refreshFrequency: "日更", updatedAt: "2026-09-02 09:10", freshness: "新鲜", owner: "吴雅", status: "active", viewers: ["business.liu", "owner.zhao", "analyst.wu"], editors: ["metric.editor.wu"] },
-  { id: "MET-003", name: "会员开通率", type: "core", domain: "会员", definition: "完成会员开通用户 / 会员入口曝光用户", unit: "%", denominator: "会员入口曝光用户", version: 1, sourceType: "table", sourceRef: "member.open_daily", refreshFrequency: "日更", updatedAt: "2026-09-01 07:30", freshness: "延迟", owner: "陈露", status: "active", viewers: ["owner.chen"], editors: [] },
-  { id: "MET-004", name: "退订率", type: "guardrail", domain: "会员", definition: "退订用户 / 已开通会员用户", unit: "%", denominator: "已开通会员用户", version: 2, sourceType: "task", sourceRef: "TASK_MEMBER_CANCEL_02", refreshFrequency: "日更", updatedAt: "2026-09-02 06:40", freshness: "新鲜", owner: "陈露", status: "active", viewers: ["owner.chen"], editors: [] },
-  { id: "MET-005", name: "支付成功率", type: "core", domain: "交易", definition: "支付成功订单 / 发起支付订单", unit: "%", denominator: "发起支付订单", version: 4, sourceType: "table", sourceRef: "trade.payment_daily", refreshFrequency: "小时级", updatedAt: "2026-09-02 10:00", freshness: "新鲜", owner: "吴雅", status: "active", viewers: ["metric.editor.wu"], editors: ["metric.editor.wu"] },
+  { id: "MET-001", name: "首购转化率", domain: "增长", definition: "首购成功用户 / 进入首购流程用户", unit: "%", denominator: "进入首购流程用户", version: 3, sourceType: "table", sourceRef: "growth.order_conversion_daily", refreshFrequency: "日更", updatedAt: "2026-09-02 08:30", freshness: "新鲜", owner: "赵晨", status: "active", viewers: ["business.liu", "owner.zhao", "analyst.wu"], editors: ["metric.editor.wu"] },
+  { id: "MET-002", name: "投诉率", domain: "增长", definition: "投诉用户 / 曝光用户", unit: "%", denominator: "曝光用户", version: 2, sourceType: "task", sourceRef: "TASK_GROWTH_COMPLAINT_01", refreshFrequency: "日更", updatedAt: "2026-09-02 09:10", freshness: "新鲜", owner: "吴雅", status: "active", viewers: ["business.liu", "owner.zhao", "analyst.wu"], editors: ["metric.editor.wu"] },
+  { id: "MET-003", name: "会员开通率", domain: "会员", definition: "完成会员开通用户 / 会员入口曝光用户", unit: "%", denominator: "会员入口曝光用户", version: 1, sourceType: "table", sourceRef: "member.open_daily", refreshFrequency: "日更", updatedAt: "2026-09-01 07:30", freshness: "延迟", owner: "陈露", status: "active", viewers: ["owner.chen"], editors: [] },
+  { id: "MET-004", name: "退订率", domain: "会员", definition: "退订用户 / 已开通会员用户", unit: "%", denominator: "已开通会员用户", version: 2, sourceType: "task", sourceRef: "TASK_MEMBER_CANCEL_02", refreshFrequency: "日更", updatedAt: "2026-09-02 06:40", freshness: "新鲜", owner: "陈露", status: "active", viewers: ["owner.chen"], editors: [] },
+  { id: "MET-005", name: "支付成功率", domain: "交易", definition: "支付成功订单 / 发起支付订单", unit: "%", denominator: "发起支付订单", version: 4, sourceType: "table", sourceRef: "trade.payment_daily", refreshFrequency: "小时级", updatedAt: "2026-09-02 10:00", freshness: "新鲜", owner: "吴雅", status: "active", viewers: ["metric.editor.wu"], editors: ["metric.editor.wu"] },
 ];
 
 export const INITIAL_SAMPLE_SOURCES = [
@@ -38,7 +38,8 @@ export function loadDemoState(storage = globalThis.localStorage) {
     if (!raw) return createInitialDemoState();
     const value = JSON.parse(raw);
     const defaults = createInitialDemoState();
-    return { ...defaults, ...value, metrics: Array.isArray(value.metrics) ? value.metrics : defaults.metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests: Array.isArray(value.requests) ? value.requests : [], audit: Array.isArray(value.audit) ? value.audit : [] };
+    const metrics = Array.isArray(value.metrics) ? value.metrics.map(({ type: _type, ...metric }) => metric) : defaults.metrics;
+    return { ...defaults, ...value, metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests: Array.isArray(value.requests) ? value.requests : [], audit: Array.isArray(value.audit) ? value.audit : [] };
   } catch {
     return createInitialDemoState();
   }
@@ -90,6 +91,22 @@ export function validateSampleSql(sql) {
   if (/;|--|\/\*|\b(insert|update|delete|drop|alter|create|merge|grant|revoke)\b/i.test(value)) return { valid: false, error: "SQL 包含不支持的语句或注释" };
   if (/\$\{BATCH_DATE\}(?![_A-Z])/i.test(value)) return { valid: false, error: "不支持 ${BATCH_DATE}，请使用 ${BATCH_DATE_START} 和 ${BATCH_DATE_END}" };
   return { valid: true, error: "" };
+}
+
+export function validateFilterCondition(condition) {
+  const value = String(condition ?? "").trim();
+  if (!value) return { valid: true, error: "" };
+  if (/^where\b/i.test(value)) return { valid: false, error: "过滤条件无需填写 WHERE" };
+  if (/;|--|\/\*|\b(select|insert|update|delete|drop|alter|create|merge|grant|revoke)\b/i.test(value)) return { valid: false, error: "过滤条件包含不支持的语句或注释" };
+  if (/\$\{BATCH_DATE\}(?![_A-Z])/i.test(value)) return { valid: false, error: "不支持 ${BATCH_DATE}，请使用 ${BATCH_DATE_START} 和 ${BATCH_DATE_END}" };
+  return { valid: true, error: "" };
+}
+
+export function appendFilterCondition(sql, condition) {
+  const query = String(sql ?? "").trim();
+  const predicate = String(condition ?? "").trim();
+  if (!predicate) return query;
+  return /\bwhere\b/i.test(query) ? `${query}\nAND (${predicate})` : `${query}\nWHERE ${predicate}`;
 }
 
 export function resolveHistoricalSnapshot(source, startDate, endDate) {

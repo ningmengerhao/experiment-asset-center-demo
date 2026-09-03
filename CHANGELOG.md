@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-03 - Metric Roles and Filter Condition (v0.6.1)
+
+Changed:
+
+- Removed core, guardrail, and observation classifications from the metric library. Any enabled metric that the user can view may be selected as either a core or guardrail metric for an experiment.
+- Replaced the mandatory guardrail checkbox group with optional, repeatable guardrail selectors. Each selector uses the same eligible metrics as the core selector, and a metric cannot be used twice in one experiment.
+- Replaced separate include/exclude sample conditions with one multi-line filter condition. SQL previews, saved design snapshots, and detail views now retain the final query after adding the condition through `WHERE` or `AND`.
+- Added browser-local migration from legacy include/exclude conditions to an equivalent combined filter predicate.
+
 ## 2026-09-03 - Offline Access, Metric Library, and Experiment Design (v0.6.0)
 
 Added:

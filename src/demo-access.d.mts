@@ -9,4 +9,6 @@ export function saveDemoState(state: any, storage?: Storage): boolean;
 export function getAccount(accountId: string | null): DemoAccount | null;
 export function canAccess(state: any, account: DemoAccount | null, permission: string, resource?: any): boolean;
 export function validateSampleSql(sql: string): { valid: boolean; error: string };
+export function validateFilterCondition(condition: string): { valid: boolean; error: string };
+export function appendFilterCondition(sql: string, condition: string): string;
 export function resolveHistoricalSnapshot(source: any, startDate: string, endDate: string): any;
