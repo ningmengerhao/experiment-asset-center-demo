@@ -14,7 +14,6 @@ const tabs = new Set([
   "investigate",
   "lineage",
   "rollout",
-  "seedHistory",
   "myImports",
   "importReview",
   "governance",

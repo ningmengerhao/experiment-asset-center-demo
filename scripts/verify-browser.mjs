@@ -19,7 +19,6 @@ const screenshotTargets = {
 const userTabs = [
   ["metrics", "指标管理", "metric-library"],
   ["access", "我的权限", "access-center"],
-  ["seedHistory", "随机数放量历史", "seed-rollout-history"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
   ["lineage", "父子实验", "relationship-map"],
@@ -31,7 +30,7 @@ const viewports = [
   { width: 585, height: 1024 },
   { width: 390, height: 844 },
 ];
-const tableRequiredTabs = new Set(["seedHistory", "list", "lineage", "rollout", "myImports"]);
+const tableRequiredTabs = new Set(["list", "lineage", "rollout", "myImports"]);
 const investigationStorageKey = "experiment-asset-investigation-v1";
 const defaultTimeout = 10_000;
 

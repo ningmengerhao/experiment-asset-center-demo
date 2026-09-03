@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-03 - Experiment Management Navigation (v0.6.3)
+
+Changed:
+
+- Aligned optional guardrail metric selectors with the core metric selector's two-column width, 14px font, and 36px control height.
+- Consolidated the ledger, lineage, rollout, and import pages under one first-position “实验管理” navigation group; `#list` remains the compatible ledger route.
+- Removed random-seed rollout history from navigation, search routing, and valid hash routes.
+
 ## 2026-09-03 - Functional Ledger Pagination (v0.6.2)
 
 Changed:

@@ -1391,7 +1391,7 @@ textarea:focus {
 .guardrail-metric-field {
   display: grid;
   gap: 8px;
-  max-width: min(560px, 100%);
+  width: calc((100% - 12px) / 2);
 }
 
 .guardrail-metric-heading,
@@ -1420,10 +1420,18 @@ textarea:focus {
 .guardrail-metric-row select {
   min-width: 0;
   flex: 1;
+  height: 36px;
+  font-size: 14px;
 }
 
 .guardrail-metric-remove {
   flex: 0 0 auto;
+}
+
+@media (max-width: 760px) {
+  .guardrail-metric-field {
+    width: 100%;
+  }
 }
 
 .history-snapshot {

@@ -12,7 +12,6 @@ import {
   FileCheck2,
   FlaskConical,
   GitBranch,
-  Hash,
   History,
   HelpCircle,
   ListChecks,
@@ -85,7 +84,6 @@ type Tab =
   | "check"
   | "lineage"
   | "rollout"
-  | "seedHistory"
   | "metrics"
   | "access"
   | "myImports"
@@ -521,10 +519,13 @@ const navGroups: Array<{
   items: Array<{ key: Tab; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }>;
 }> = [
   {
-    title: "首页",
+    title: "实验管理",
     role: "all",
     items: [
-      { key: "list", label: "首页", icon: ClipboardList },
+      { key: "list", label: "实验管理", icon: ClipboardList },
+      { key: "lineage", label: "父子实验", icon: Network },
+      { key: "rollout", label: "放量历史", icon: Clock3 },
+      { key: "myImports", label: "批量导入记录", icon: Upload },
     ],
   },
   {
@@ -540,16 +541,6 @@ const navGroups: Array<{
     role: "all",
     items: [
       { key: "investigate", label: "监控排查", icon: Radar },
-    ],
-  },
-  {
-    title: "实验管理",
-    role: "all",
-    items: [
-      { key: "lineage", label: "父子实验", icon: Network },
-      { key: "rollout", label: "放量历史", icon: Clock3 },
-      { key: "seedHistory", label: "随机数放量历史", icon: Hash },
-      { key: "myImports", label: "批量导入记录", icon: Upload },
     ],
   },
   {
@@ -584,7 +575,6 @@ const stageByTab: Record<Tab, Tab> = {
   create: "create",
   evaluate: "evaluate",
   seed: "seed",
-  seedHistory: "seed",
   check: "check",
   investigate: "investigate",
   list: "list",
@@ -1261,7 +1251,7 @@ function App() {
     }) }));
   const activeLabel = activeTab === "create" ? "新建实验" : visibleGroups.flatMap((group) => group.items).find((item) => item.key === activeTab)?.label ?? "实验清单";
   const activeGroup = visibleGroups.find((group) => group.items.some((item) => item.key === activeTab));
-  const breadcrumbGroup = activeTab === "list" || activeTab === "create" ? "首页" : activeGroup?.title ?? "工作台";
+  const breadcrumbGroup = activeTab === "list" || activeTab === "create" ? "实验管理" : activeGroup?.title ?? "工作台";
   const breadcrumbLabel = activeTab === "list" ? "实验清单" : activeLabel;
   const searchResults = useMemo(() => {
     const keyword = globalSearchKeyword.trim().toLowerCase();
@@ -1307,16 +1297,7 @@ function App() {
       .filter((platform) => !keyword || platform.toLowerCase().includes(keyword))
       .slice(0, 3)
       .map((platform) => ({ type: "来源平台", title: platform, meta: "点击后在实验清单筛选来源关键词", action: () => { updateFilter("sourcePlatformKeyword", platform); navigateToTab("list"); } }));
-    const seedResults = [
-      { seed: selectedSeed, meta: "当前选择" },
-      { seed: "member-copy-v2", meta: "Seed 记录 · 会员权益文案强化" },
-      { seed: "search_empty_safe", meta: "Seed 记录 · 搜索无结果页改版" },
-    ]
-      .filter((row, index, array) => array.findIndex((item) => item.seed === row.seed) === index)
-      .filter((row) => !keyword || row.seed.toLowerCase().includes(keyword))
-      .slice(0, 3)
-      .map((row) => ({ type: "Seed 记录", title: row.seed, meta: row.meta, action: () => navigateToTab("seedHistory") }));
-    return [...experimentResults, ...rolloutResults, ...relationResults, ...sourceResults, ...seedResults].slice(0, 10);
+    return [...experimentResults, ...rolloutResults, ...relationResults, ...sourceResults].slice(0, 10);
   }, [globalSearchKeyword, selectedSeed, investigationContext]);
 
   const selectedCheckExperiment = experiments.find((item) => item.id === checkTarget.experimentId) ?? experiments[0];
@@ -2258,7 +2239,6 @@ function App() {
           {activeTab === "investigate" && renderInvestigation()}
           {activeTab === "lineage" && renderLineage()}
           {activeTab === "rollout" && renderRollout()}
-          {activeTab === "seedHistory" && renderSeedHistory()}
           {activeTab === "myImports" && renderMyImports()}
           {roleView === "admin" && activeTab === "importReview" && renderImportReview()}
           {roleView === "admin" && activeTab === "governance" && renderGovernance()}
@@ -3860,46 +3840,6 @@ function App() {
 
   function renderInvestigation() {
     return renderInvestigationWorkbench();
-  }
-
-  function renderSeedHistory() {
-    const rows = [
-      { seed: "member-copy-v2", experiment: "会员权益文案强化", rollout: "5% -> 20%", time: "2026-06-17 11:30", result: "均匀性通过" },
-      { seed: "search_empty_safe", experiment: "搜索无结果页改版", rollout: "20% -> 100%", time: "2026-06-21 12:20", result: "正交性通过" },
-      { seed: "pay_coupon_holdout", experiment: "支付页优惠提醒", rollout: "10% -> 35%", time: "2026-06-19 10:00", result: "需复核" },
-    ];
-    return (
-      <section className="module-page" data-page-id="seedHistory">
-        <div className="page-heading">
-          <h1>随机数放量历史</h1>
-          <p>查看 seed 被哪些实验使用、何时放量、校验结论和是否存在复用风险。</p>
-        </div>
-        <div className="table-wrap" data-page-core="seed-rollout-history">
-          <table className="data-table compact">
-            <thead>
-              <tr>
-                <th>Seed</th>
-                <th>实验</th>
-                <th>放量变化</th>
-                <th>时间</th>
-                <th>评估结论</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={`${row.seed}-${row.time}`}>
-                  <td className="mono">{row.seed}</td>
-                  <td>{row.experiment}</td>
-                  <td>{row.rollout}</td>
-                  <td>{row.time}</td>
-                  <td>{row.result}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
   }
 
   function renderMyImports() {

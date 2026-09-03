@@ -39,14 +39,14 @@ check("artifact is generated from React production source", includesAll(builder,
 check("artifact does not contain the React development runtime", !dist.includes("react.development.js") && !dist.includes("Download the React DevTools"));
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
-check("ordinary-user navigation keeps home and removes legacy stage groups", /title:\s*"首页"[\s\S]*key:\s*"list"[\s\S]*label:\s*"首页"/.test(app) && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
-check("experiment management places seed history after rollout", /title:\s*"实验管理"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"seedHistory"[\s\S]*key:\s*"myImports"/.test(app));
+check("ordinary-user navigation starts with experiment management and removes legacy stage groups", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*label:\s*"实验管理"/.test(app) && !app.includes('title: "首页"') && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
+check("experiment management retains ledger lineage rollout and imports without seed history", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"myImports"/.test(app) && !app.includes('key: "seedHistory"'));
 check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
 check("permission page supports role profiles scopes and audit", includesAll(permissionPage, ["角色档案", "可见范围", "动作权限", "代理负责人", "规则阈值范围", "权限变更记录"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
-  'activeTab === "seedHistory"', 'activeTab === "investigate"', 'activeTab === "list"',
+  'activeTab === "investigate"', 'activeTab === "list"',
   'activeTab === "lineage"', 'activeTab === "rollout"', 'activeTab === "myImports"',
 ]));
 check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "importReview", "governance", "permission"]));
@@ -74,7 +74,7 @@ check("legacy validation entry points open snapshots instead of old pages", incl
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
 check("investigation browser selectors exist", includesAll(app, ["data-start-investigation", "data-investigation-status", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
-  "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"", "data-page-id=\"seedHistory\"",
+  "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"",
   "data-page-id=\"check\"", "data-page-id=\"investigate\"", "data-page-id=\"list\"",
   "data-page-id=\"lineage\"", "data-page-id=\"rollout\"", "data-page-id=\"myImports\"", "data-page-core=",
 ]));
