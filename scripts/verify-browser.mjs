@@ -597,6 +597,7 @@ async function run() {
 
     await openUrl(`${distUrl}#list`);
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] .field").length`), 4, "Ledger must show exactly four default filters.");
+    assert.equal(await evaluate(`Boolean(document.querySelector("[data-ledger-page-prev]") && document.querySelector("[data-ledger-page-next]") && document.querySelector("[data-ledger-page-input]") && document.querySelector("[data-ledger-page-jump]"))`), true, "Ledger pagination must expose previous, next, and direct-page controls.");
     assert.equal(await evaluate(`document.querySelectorAll("[data-ledger-default-filters] [data-filter-draft]").length`), 0, "Source filtering must not appear in the default filter row.");
     assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="keyword"]')?.getAttribute("placeholder")`), "实验 ID / 名称", "Ledger keyword input must display its filter name.");
     assert.equal(await evaluate(`document.querySelector('[data-ledger-filter="owner"]')?.getAttribute("list")`), "owner-options", "Ledger owner filter must offer known-owner suggestions.");

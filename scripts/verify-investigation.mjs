@@ -273,7 +273,8 @@ assert.match(app, /<X\s+size=\{18\}/, "Task 5: close controls must use the lucid
 assert.match(app, /aria-label="全局搜索实验、Seed 和放量事件"/, "Task 5: global search needs a useful accessible name");
 assert.match(app, /aria-label=\{`导入批次 \$\{batch\.id\} 第 \$\{issue\.row\} 行的处理决策`\}/, "Task 5: import review selects need row-specific labels");
 assert.match(app, /aria-label=\{`导入预检第 \$\{row\.row\} 行状态：\$\{row\.level\}`\}/, "Task 5: import precheck statuses need semantic labels");
-assert.match(app, /<button disabled aria-label="上一页">/, "Task 5: icon-only previous pagination control needs a name");
+assert.match(app, /data-ledger-page-prev[\s\S]*aria-label="上一页"[\s\S]*onClick=\{\(\) => goToLedgerPage\(currentLedgerPage - 1\)\}/, "Task 5: previous pagination control needs a name and interaction");
+assert.match(app, /data-ledger-page-next[\s\S]*aria-label="下一页"[\s\S]*onClick=\{\(\) => goToLedgerPage\(currentLedgerPage \+ 1\)\}/, "Task 5: next pagination control needs a name and interaction");
 assert.match(app, /status-dot[\s\S]*aria-label=\{`实验状态：\$\{statusText\[item\.status\]\}`\}/, "Task 5: experiment status must have a semantic label");
 assert.match(app, /activeNavRef\.current\?\.scrollIntoView\(/, "Task 5: active mobile nav must scroll into view");
 assert.match(app, /prefers-reduced-motion: reduce/, "Task 5: nav scrolling must respect reduced motion");

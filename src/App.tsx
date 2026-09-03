@@ -32,7 +32,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildInvestigationHash,
@@ -65,6 +65,7 @@ import {
 import type { CreateExperimentDraft, CreateStep, GeneratedSeedConfig } from "./create-experiment.mjs";
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "./drawer.mjs";
 import type { DrawerName } from "./drawer.mjs";
+import { paginate } from "./pagination.mjs";
 import {
   canManageRule,
   rankAttributionCandidates,
@@ -571,6 +572,7 @@ const defaultLedgerFilters: LedgerFilters = {
   status: "all",
   owner: "",
 };
+const LEDGER_PAGE_SIZE = 10;
 const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "evaluate", label: "实验前评估" },
   { tab: "seed", label: "分流方案" },
@@ -1130,6 +1132,8 @@ function App() {
   const toastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [filters, setFilters] = useState<LedgerFilters>(defaultLedgerFilters);
   const [filterDraft, setFilterDraft] = useState<LedgerFilters>(defaultLedgerFilters);
+  const [ledgerPage, setLedgerPage] = useState(1);
+  const [ledgerPageInput, setLedgerPageInput] = useState("1");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [createExperimentOpen, setCreateExperimentOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateExperimentDraft>(() => loadCreateDraft() ?? createDefaultDraft());
@@ -1221,6 +1225,16 @@ function App() {
       );
     });
   }, [filters, ledgerExperiments]);
+  const ledgerPagination = paginate(filteredExperiments, ledgerPage, LEDGER_PAGE_SIZE);
+  const ledgerPageCount = ledgerPagination.pageCount;
+  const currentLedgerPage = ledgerPagination.currentPage;
+  const pagedExperiments = ledgerPagination.rows;
+  const ledgerPageNumbers = Array.from({ length: ledgerPageCount }, (_, index) => index + 1);
+
+  useEffect(() => {
+    if (ledgerPage !== currentLedgerPage) setLedgerPage(currentLedgerPage);
+    setLedgerPageInput(String(currentLedgerPage));
+  }, [currentLedgerPage, ledgerPage]);
 
   const seedCandidates = useMemo(() => buildSeedCandidates(seedInputMode, seedManualList, seedTemplate, seedTemplateVars, seedBase, seedCount), [seedInputMode, seedManualList, seedTemplate, seedTemplateVars, seedBase, seedCount]);
 
@@ -1326,6 +1340,7 @@ function App() {
 
   function updateFilter(key: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
+    setLedgerPage(1);
   }
 
   function updateFilterDraft(key: keyof LedgerFilters, value: string) {
@@ -1715,13 +1730,26 @@ function App() {
   function resetLedgerFilters() {
     setFilters({ ...defaultLedgerFilters });
     setFilterDraft({ ...defaultLedgerFilters });
+    setLedgerPage(1);
     showToast("已重置筛选条件");
   }
 
   function applyFilterDraft() {
     setFilters({ ...filterDraft });
+    setLedgerPage(1);
     closeTopmostDrawer();
     showToast("已应用全部筛选条件");
+  }
+
+  function goToLedgerPage(page: number) {
+    const nextPage = Math.max(1, Math.min(ledgerPageCount, Math.trunc(page) || 1));
+    setLedgerPage(nextPage);
+    setLedgerPageInput(String(nextPage));
+  }
+
+  function submitLedgerPageJump(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    goToLedgerPage(Number(ledgerPageInput));
   }
 
   function showToast(message: string) {
@@ -2935,7 +2963,7 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {filteredExperiments.map((item) => (
+              {pagedExperiments.map((item) => (
                 <tr key={item.id}>
                   <td className="ledger-primary-cell">
                     <strong>{item.name}</strong>
@@ -2993,12 +3021,15 @@ function App() {
 
         <div className="pagination">
           <span>Total: {filteredExperiments.length}</span>
-          <button disabled aria-label="上一页">&lt;</button>
-          <button className="active" aria-current="page">1</button>
-          <button disabled title="静态 demo 仅展示第一页">2</button>
-          <button disabled title="静态 demo 仅展示第一页">3</button>
-          <span>...</span>
-          <button disabled>10 / Page</button>
+          <button data-ledger-page-prev type="button" disabled={currentLedgerPage === 1} aria-label="上一页" onClick={() => goToLedgerPage(currentLedgerPage - 1)}>&lt;</button>
+          {ledgerPageNumbers.map((page) => <button key={page} data-ledger-page={page} type="button" className={page === currentLedgerPage ? "active" : ""} aria-current={page === currentLedgerPage ? "page" : undefined} onClick={() => goToLedgerPage(page)}>{page}</button>)}
+          <button data-ledger-page-next type="button" disabled={currentLedgerPage === ledgerPageCount} aria-label="下一页" onClick={() => goToLedgerPage(currentLedgerPage + 1)}>&gt;</button>
+          <form className="pagination-jump" onSubmit={submitLedgerPageJump}>
+            <label><span className="sr-only">跳转页码</span><input data-ledger-page-input type="number" min="1" max={ledgerPageCount} value={ledgerPageInput} onChange={(event) => setLedgerPageInput(event.target.value)} /></label>
+            <span>/ {ledgerPageCount} 页</span>
+            <button data-ledger-page-jump type="submit">跳转</button>
+          </form>
+          <span>{LEDGER_PAGE_SIZE} / Page</span>
         </div>
       </section>
     );

@@ -1158,6 +1158,7 @@ textarea:focus {
 .pagination {
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   padding-top: 16px;
   color: var(--text-2);
 }
@@ -1181,6 +1182,25 @@ textarea:focus {
 .pagination button:disabled {
   color: #C9CDD4;
   cursor: not-allowed;
+}
+
+.pagination-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pagination-jump input {
+  width: 48px;
+  height: 30px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  text-align: center;
+}
+
+.pagination-jump button {
+  min-width: auto;
+  padding-inline: 8px;
 }
 
 .metric-grid,

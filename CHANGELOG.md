@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-03 - Functional Ledger Pagination (v0.6.2)
+
+Changed:
+
+- Replaced the ledger's placeholder pagination with real browser-local result slicing at 10 records per page.
+- Added numbered-page navigation, accessible previous/next controls, and a direct page-number jump field.
+- Reset to the first page whenever ledger filters are changed, reset, or applied from the extended filter dialog.
+
 ## 2026-09-03 - Metric Roles and Filter Condition (v0.6.1)
 
 Changed:
