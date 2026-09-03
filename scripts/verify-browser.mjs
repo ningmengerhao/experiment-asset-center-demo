@@ -17,6 +17,8 @@ const screenshotTargets = {
   mobile: path.join(projectRoot, "dist", "ui-check-investigation-mobile.png"),
 };
 const userTabs = [
+  ["metrics", "指标管理", "metric-library"],
+  ["access", "我的权限", "access-center"],
   ["seedHistory", "随机数放量历史", "seed-rollout-history"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
@@ -443,6 +445,9 @@ async function run() {
 
     await setViewport(viewports[0]);
     await openUrl(distUrl);
+    await waitFor("demo account selector", () => evaluate(`Boolean(document.querySelector(".demo-account-grid"))`));
+    await physicalClick(".demo-account-grid button:first-child");
+    await waitFor("demo admin login", () => evaluate(`Boolean(document.querySelector('[data-page-id="list"]'))`));
     await expectPageContract("list", "实验清单", "experiment-ledger");
     assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "首页", "List route must render as the home navigation item.");
     pass("empty URL opens the experiment ledger home");
@@ -498,7 +503,7 @@ async function run() {
     await waitFor("help trigger focus restoration", () => evaluate(`document.activeElement?.id === "headerHelpButton"`));
     pass("help drawer closes with Escape and restores focus");
 
-    await evaluate("sessionStorage.clear(); localStorage.clear()");
+    await evaluate(`sessionStorage.clear(); localStorage.removeItem("experiment-asset-created-records-v1"); localStorage.removeItem("experiment-asset-create-draft-v1")`);
     await openUrl(`${distUrl}#invalid-route`);
     await waitFor("invalid route normalization", () => evaluate(`location.hash === "#list"`));
     await expectPageContract("list", "实验清单", "experiment-ledger");
@@ -514,9 +519,11 @@ async function run() {
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     await typeText('[data-create-basic="owner"]', "赵晨");
-    await typeText('[data-create-basic="coreMetric"]', "首购转化率");
-    await typeText('[data-create-basic="guardrailMetric"]', "投诉率");
     await typeText('[data-create-basic="hypothesis"]', "新版引导可以提升首次购买转化。");
+    await physicalClick("[data-create-core-metric]");
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await physicalClick('[data-create-metric-selection] input[type="checkbox"]');
     await physicalClick("[data-create-save]");
     await waitFor("saved draft remains on current step", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === "新增首购引导"`));
     await openUrl(`${distUrl}#list`);
@@ -575,7 +582,7 @@ async function run() {
     await physicalClick("[data-open-create-experiment]");
     await physicalClick('[data-create-method="direct"]');
     await waitFor("new experiment starts blank", () => evaluate(`location.hash === "#create?step=basic" && document.querySelector('[data-create-basic="name"]')?.value === ""`));
-    await evaluate("localStorage.clear(); sessionStorage.clear()");
+    await evaluate(`sessionStorage.clear(); localStorage.removeItem("experiment-asset-created-records-v1"); localStorage.removeItem("experiment-asset-create-draft-v1")`);
     pass("new experiment saves editable ledger drafts and always opens a fresh wizard");
 
     await openUrl(`${distUrl}#list`);

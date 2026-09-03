@@ -2,6 +2,20 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-09-03 - Offline Access, Metric Library, and Experiment Design (v0.6.0)
+
+Added:
+
+- Added browser-local test accounts for administrator, business owner, experiment owner, metric editor, analyst, and read-only applicant roles, with one-click account switching and resettable mock data.
+- Added resource-level `can(account, action, resource)` authorization for experiments, metrics, and sample sources, plus local permission requests, approvals, temporary grants, and audit records.
+- Added the standalone metric-management module for metric metadata, table/task sources, freshness, version, owner, active state, and resource-level view/edit authorization. Referenced metrics are deactivated rather than physically deleted.
+- Moved core and guardrail metric selection, sample-range configuration, and historical date range into the first step of the new-experiment wizard. The flow now accepts mock task IDs or a single safe `SELECT` SQL statement with only `${BATCH_DATE_START}` and `${BATCH_DATE_END}` parameters.
+- Added mock historical snapshots that feed sample-size and feasibility inputs, and frozen metric/source/time-range snapshots to local experiment detail records.
+
+Changed:
+
+- New experiments now block progression when the selected sample source is not authorized, the SQL is unsafe, the legacy `${BATCH_DATE}` parameter is used, or the requested historical range is invalid.
+
 ## 2026-09-02 - Paused Experiment Actions (v0.5.2)
 
 Changed:

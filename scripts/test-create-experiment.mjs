@@ -52,12 +52,12 @@ assert.equal(normalizeCreateStep("unknown"), "basic");
 assert.equal(createHash("validation"), "#create?step=validation");
 assert.equal(readCreateStep("#create?step=sample"), "sample");
 assert.equal(readCreateStep("#create?step=unsafe"), "basic");
-assert.deepEqual(validateCreateStep(draft, "basic"), ["实验名称", "负责人", "核心指标", "护栏指标", "实验假设"]);
+assert.deepEqual(validateCreateStep(draft, "basic"), ["实验名称", "负责人", "核心指标", "实验假设", "护栏指标"]);
 
 const completedBasic = {
   ...draft,
   savedStep: "sample",
-  basic: { ...draft.basic, name: "新增首页引导", domain: "会员", owner: "赵晨", coreMetric: "转化率", guardrailMetric: "投诉率", hypothesis: "新引导可提升转化" },
+  basic: { ...draft.basic, name: "新增首页引导", domain: "会员", owner: "赵晨", coreMetricId: "MET-003", guardrailMetricIds: ["MET-004"], coreMetric: "转化率", guardrailMetric: "投诉率", hypothesis: "新引导可提升转化" },
 };
 assert.deepEqual(validateCreateStep(completedBasic, "basic"), []);
 assert.deepEqual(validateCreateStep({ ...completedBasic, sample: { ...completedBasic.sample, dailyTraffic: 0 } }, "sample"), ["dailyTraffic"]);

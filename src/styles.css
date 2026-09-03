@@ -1327,6 +1327,170 @@ textarea:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.design-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.design-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.metric-chip-field {
+  display: grid;
+  gap: 7px;
+}
+
+.metric-chip-field > span {
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.metric-chip-field > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  min-height: 38px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.metric-chip-field label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+}
+
+.history-snapshot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  padding: 10px 12px;
+  color: var(--text-2);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.history-snapshot span,
+.history-snapshot em {
+  color: var(--text-3);
+  font-style: normal;
+}
+
+.metric-library-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+  gap: 16px;
+}
+
+.metric-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.metric-list button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  text-align: left;
+  background: var(--surface);
+}
+
+.metric-list button.active {
+  border-color: #8eb5ff;
+  background: var(--primary-soft);
+}
+
+.metric-list small {
+  grid-column: 2;
+  color: var(--text-3);
+}
+
+.access-request-list {
+  display: grid;
+  gap: 10px;
+}
+
+.access-request-list > div {
+  display: grid;
+  gap: 3px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+}
+
+.design-snapshot .snapshot-rule {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.demo-login-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg);
+}
+
+.demo-login {
+  display: grid;
+  width: min(760px, 100%);
+  gap: 22px;
+  padding: 28px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.demo-login h1,
+.demo-login p {
+  margin: 0;
+}
+
+.demo-login p {
+  margin-top: 8px;
+  color: var(--text-2);
+}
+
+.demo-account-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.demo-account-grid button {
+  display: grid;
+  gap: 3px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  text-align: left;
+  background: var(--bg);
+}
+
+.demo-account-grid button:hover {
+  border-color: #8eb5ff;
+  background: var(--primary-soft);
+}
+
+.demo-account-grid span,
+.demo-account-grid em {
+  color: var(--text-3);
+  font-size: 12px;
+  font-style: normal;
+}
+
 .create-sample-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3198,6 +3362,10 @@ textarea:focus {
     grid-column: auto;
   }
 
+  .metric-library-layout {
+    grid-template-columns: 1fr;
+  }
+
   .create-validation-context {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3345,6 +3513,10 @@ textarea:focus {
   .create-validation-context,
   .create-validation-list,
   .create-suggestion-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .demo-account-grid {
     grid-template-columns: 1fr;
   }
 

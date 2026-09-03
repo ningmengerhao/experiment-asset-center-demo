@@ -5,7 +5,7 @@ export interface GeneratedSeedConfig { key: string; domain: string; sampleUnit: 
 export interface CreateExperimentDraft {
   savedStep: CreateStep;
   recordId: string;
-  basic: { name: string; businessLine: string; domain: string; owner: string; coreMetric: string; guardrailMetric: string; hypothesis: string };
+  basic: { name: string; businessLine: string; domain: string; owner: string; experimentType: string; planStartDate: string; coreMetricId: string; guardrailMetricIds: string[]; sampleRange: { sourceKind: "sql" | "task"; sourceId: string; sql: string; taskId: string; startDate: string; endDate: string; includeCondition: string; excludeCondition: string }; coreMetric: string; guardrailMetric: string; hypothesis: string };
   sample: { baseline: number; mde: number; confidence: number; power: number; splitGroups: CreateSplitGroup[]; dailyTraffic: number; identityCoverage: number; maxDays: number; stableDays: number; guardrailCount: number; businessValue: number };
   seed: { sampleUnit: string; candidateCount: number; template: string; customSeed: string; customCandidate: string; selectedSeed: string; generated: GeneratedSeedConfig };
   validation: { scope: "全部运行实验" | "同业务域" | "同分流层" | "手动指定"; manualExperimentIds: string[] };

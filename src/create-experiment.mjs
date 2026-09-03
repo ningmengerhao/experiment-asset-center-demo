@@ -145,6 +145,11 @@ export function createDefaultDraft() {
       businessLine: "增长",
       domain: "增长",
       owner: "",
+      experimentType: "A/B",
+      planStartDate: "2026-09-10",
+      coreMetricId: "",
+      guardrailMetricIds: [],
+      sampleRange: { sourceKind: "sql", sourceId: "SRC-GROWTH-TABLE", sql: "SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'", taskId: "", startDate: "2026-08-19", endDate: "2026-09-01", includeCondition: "entry = 'new_home'", excludeCondition: "is_test_user = 0" },
       coreMetric: "",
       guardrailMetric: "",
       hypothesis: "",
@@ -203,10 +208,9 @@ export function validateCreateStep(draft, step) {
       ["businessLine", "业务线"],
       ["domain", "实验域"],
       ["owner", "负责人"],
-      ["coreMetric", "核心指标"],
-      ["guardrailMetric", "护栏指标"],
+      ["coreMetricId", "核心指标"],
       ["hypothesis", "实验假设"],
-    ].filter(([key]) => !String(draft.basic[key] ?? "").trim()).map(([, label]) => label);
+    ].filter(([key]) => !String(draft.basic[key] ?? "").trim()).map(([, label]) => label).concat(Array.isArray(draft.basic.guardrailMetricIds) && draft.basic.guardrailMetricIds.length ? [] : ["护栏指标"]);
   }
 
   if (step === "sample") {
