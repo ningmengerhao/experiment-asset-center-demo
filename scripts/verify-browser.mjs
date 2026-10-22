@@ -18,17 +18,15 @@ const screenshotTargets = {
 };
 const userTabs = [
   ["metrics", "指标管理", "metric-library"],
-  ["access", "我的权限", "access-center"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
-  ["myImports", "批量导入记录", "import-history"],
 ];
 const viewports = [
   { width: 1366, height: 768 },
   { width: 585, height: 1024 },
   { width: 390, height: 844 },
 ];
-const tableRequiredTabs = new Set(["list", "myImports"]);
+const tableRequiredTabs = new Set(["list"]);
 const investigationStorageKey = "experiment-asset-investigation-v1";
 const defaultTimeout = 10_000;
 
@@ -500,6 +498,7 @@ async function run() {
     await physicalClick('[data-create-method="direct"]');
     await waitFor("direct new experiment opens the wizard", () => evaluate(`location.hash === "#create?step=basic" && Boolean(document.querySelector("[data-page-id=\"create\"]"))`));
     assert.equal(await evaluate(`document.querySelectorAll('[data-nav-id="create"]').length`), 0, "The new experiment wizard must not appear in the sidebar.");
+    assert.equal(await evaluate(`document.querySelectorAll(".required-marker").length >= 10`), true, "All required basic-information fields must carry a red required marker.");
     await typeText('[data-create-basic="name"]', "新增首购引导");
     await physicalClick('[data-create-basic="domain"]');
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 });
@@ -617,7 +616,37 @@ async function run() {
     await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
     pass("new experiment can route to the existing upload import flow");
 
-    for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout"]) {
+    await evaluate(`(() => { const state = JSON.parse(localStorage.getItem("experiment-asset-demo-access-v1")); state.sessionAccountId = "viewer.sun"; localStorage.setItem("experiment-asset-demo-access-v1", JSON.stringify(state)); })()`);
+    await openUrl(`${distUrl}#list`);
+    await waitFor("restricted ledger entry", () => evaluate(`Boolean(document.querySelector('[data-experiment-access="restricted"] [data-request-experiment]'))`));
+    assert.equal(await evaluate(`(() => { const row = document.querySelector('[data-experiment-access="restricted"]'); return row?.querySelectorAll(".row-actions button").length === 1 && row.querySelector(".row-actions button")?.textContent.trim() === "申请"; })()`), true, "Restricted ledger rows must expose only the apply action.");
+    const restrictedActionWidth = await evaluate(`(() => { const cell = document.querySelector('[data-experiment-access="restricted"] td:last-child'); return Math.round(cell?.getBoundingClientRect().width || 0); })()`);
+    assert.equal(restrictedActionWidth, 256, "Ledger action column must retain a fixed 256px width.");
+    await physicalClick('[data-request-experiment]');
+    await waitFor("permission request dialog", () => evaluate(`document.querySelector("[data-permission-request-dialog]")?.getAttribute("aria-modal") === "true"`));
+    await physicalClick('[data-permission-request-dialog] input[type="checkbox"]:last-of-type');
+    assert.equal(await evaluate(`(() => { const fields = [...document.querySelectorAll('[data-permission-request-dialog] input[type="checkbox"]')]; return fields.length === 2 && fields.every((field) => field.checked); })()`), true, "Requesting edit must also select view.");
+    await typeText('[data-permission-request-dialog] textarea', "需要处理当前实验设计和校验结果。");
+    await physicalClick('[data-permission-request-dialog] .primary-button');
+    await waitFor("permission request submit", () => evaluate(`!document.querySelector("[data-permission-request-dialog]")`));
+    await physicalClick('[aria-label="消息中心"]');
+    await waitFor("message center", () => evaluate(`Boolean(document.querySelector("[data-message-center]"))`));
+    await physicalClick('[data-message-center] [role="tab"]:nth-child(2)');
+    await waitFor("own request notification", () => evaluate(`document.querySelector("[data-message-center]")?.textContent.includes("待审批")`));
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await evaluate(`(() => { const state = JSON.parse(localStorage.getItem("experiment-asset-demo-access-v1")); state.sessionAccountId = "admin.zhao"; localStorage.setItem("experiment-asset-demo-access-v1", JSON.stringify(state)); })()`);
+    await openUrl(`${distUrl}#list`);
+    await physicalClick('[aria-label="消息中心"]');
+    await waitFor("admin approval tab", () => evaluate(`document.querySelectorAll('[data-message-center] [role="tab"]').length === 3`));
+    await physicalClick('[data-message-center] [role="tab"]:nth-child(3)');
+    await waitFor("pending approval row", () => evaluate(`Boolean(document.querySelector('[data-message-center] [aria-label^="选择权限申请"]'))`));
+    await physicalClick('[data-message-center] [aria-label^="选择权限申请"]');
+    await physicalClick('[data-message-center] .message-center-panel-head .primary-button');
+    await waitFor("batch approval", () => evaluate(`!document.querySelector('[data-message-center] [aria-label^="选择权限申请"]')`));
+    pass("message center supports contextual requests and administrator approval");
+
+    for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout", "#access", "#myImports", "#importReview"]) {
       await openUrl(`${distUrl}${legacyHash}`);
       await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#list"`));
       await expectPageContract("list", "实验清单", "experiment-ledger");

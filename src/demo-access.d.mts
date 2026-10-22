@@ -3,6 +3,7 @@ export const DEMO_STATE_STORAGE_KEY: string;
 export const TEST_ACCOUNTS: DemoAccount[];
 export const INITIAL_METRICS: any[];
 export const INITIAL_SAMPLE_SOURCES: any[];
+export const INITIAL_IMPORT_BATCHES: any[];
 export function createInitialDemoState(): any;
 export function loadDemoState(storage?: Storage): any;
 export function saveDemoState(state: any, storage?: Storage): boolean;

@@ -28,8 +28,41 @@ export const INITIAL_GRANTS = [
   { id: "GRANT-001", accountId: "viewer.sun", scope: "experiment", resourceId: "EXP-240618-006", permissions: ["experiment.view"], expiresAt: "2026-12-31" },
 ];
 
+export const INITIAL_IMPORT_BATCHES = [
+  {
+    id: "IMP-20260703-01",
+    file: "experiment_import_20260703.xlsx",
+    submitter: "赵晨",
+    submitterId: "admin.zhao",
+    submittedAt: "2026-07-03 10:30",
+    status: "部分导入",
+    summary: "已导入 1 / 未导入 3",
+    nextAction: "查看问题行并修正后重新导入",
+    issues: [
+      { row: 2, experimentId: "EXP-240701-009", level: "通过", issue: "字段完整，已导入" },
+      { row: 3, experimentId: "EXP-240701-010", level: "需确认", issue: "负责人缺失；未导入" },
+      { row: 4, experimentId: "EXP-240611-017", level: "阻断", issue: "实验 ID 已存在；未导入" },
+      { row: 5, experimentId: "EXP-240701-011", level: "阻断", issue: "放量比例异常；未导入" },
+    ],
+  },
+  {
+    id: "IMP-20260702-03",
+    file: "member_experiment_backfill.xlsx",
+    submitter: "陈露",
+    submitterId: "owner.chen",
+    submittedAt: "2026-07-02 16:45",
+    status: "部分导入",
+    summary: "已导入 6 / 未导入 2",
+    nextAction: "查看问题行并修正后重新导入",
+    issues: [
+      { row: 8, experimentId: "EXP-240628-021", level: "需确认", issue: "来源平台别名未命中；未导入" },
+      { row: 9, experimentId: "EXP-240628-022", level: "需确认", issue: "父子关系原因为空；未导入" },
+    ],
+  },
+];
+
 export function createInitialDemoState() {
-  return { sessionAccountId: null, metrics: INITIAL_METRICS.map((item) => ({ ...item })), sampleSources: INITIAL_SAMPLE_SOURCES.map((item) => ({ ...item })), grants: INITIAL_GRANTS.map((item) => ({ ...item })), requests: [], audit: [] };
+  return { sessionAccountId: null, metrics: INITIAL_METRICS.map((item) => ({ ...item })), sampleSources: INITIAL_SAMPLE_SOURCES.map((item) => ({ ...item })), grants: INITIAL_GRANTS.map((item) => ({ ...item })), requests: [], importBatches: INITIAL_IMPORT_BATCHES.map((item) => ({ ...item, issues: item.issues.map((issue) => ({ ...issue })) })), audit: [] };
 }
 
 export function loadDemoState(storage = globalThis.localStorage) {
@@ -39,7 +72,10 @@ export function loadDemoState(storage = globalThis.localStorage) {
     const value = JSON.parse(raw);
     const defaults = createInitialDemoState();
     const metrics = Array.isArray(value.metrics) ? value.metrics.map(({ type: _type, ...metric }) => metric) : defaults.metrics;
-    return { ...defaults, ...value, metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests: Array.isArray(value.requests) ? value.requests : [], audit: Array.isArray(value.audit) ? value.audit : [] };
+    const requests = Array.isArray(value.requests)
+      ? value.requests.map((request) => ({ ...request, permissions: Array.isArray(request.permissions) ? request.permissions : request.permission ? [request.permission] : [] }))
+      : [];
+    return { ...defaults, ...value, metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests, importBatches: Array.isArray(value.importBatches) ? value.importBatches : defaults.importBatches, audit: Array.isArray(value.audit) ? value.audit : [] };
   } catch {
     return createInitialDemoState();
   }
@@ -58,9 +94,17 @@ export function getAccount(accountId) {
   return TEST_ACCOUNTS.find((account) => account.id === accountId) ?? null;
 }
 
+function grantAllows(grant, permission) {
+  const permissions = Array.isArray(grant.permissions) ? grant.permissions : grant.permission ? [grant.permission] : [];
+  if (permissions.includes(permission)) return true;
+  if (permission === "metric.view" && permissions.includes("metric.edit")) return true;
+  if (permission === "experiment.view" && permissions.includes("experiment.edit")) return true;
+  return false;
+}
+
 function activeGrant(state, accountId, scope, resourceId, permission) {
   const today = new Date().toISOString().slice(0, 10);
-  return (state.grants ?? []).some((grant) => grant.accountId === accountId && grant.scope === scope && grant.resourceId === resourceId && grant.permissions?.includes(permission) && (!grant.expiresAt || grant.expiresAt >= today));
+  return (state.grants ?? []).some((grant) => grant.accountId === accountId && grant.scope === scope && grant.resourceId === resourceId && grantAllows(grant, permission) && (!grant.expiresAt || grant.expiresAt >= today));
 }
 
 export function canAccess(state, account, permission, resource = {}) {
@@ -77,7 +121,8 @@ export function canAccess(state, account, permission, resource = {}) {
     const owner = resource.owner;
     const owns = owner === account.name || account.ownedExperimentIds.includes(id);
     const visible = owns || account.domains.includes(domain) || activeGrant(state, account.id, "experiment", id, permission) || activeGrant(state, account.id, "domain", domain, permission);
-    if (permission === "experiment.edit" || permission === "experiment.lifecycle") return owns;
+    if (permission === "experiment.edit") return owns || activeGrant(state, account.id, "experiment", id, permission);
+    if (permission === "experiment.lifecycle") return owns;
     return visible;
   }
   if (permission === "access.approve") return account.role === "admin";

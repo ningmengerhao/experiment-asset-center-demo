@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-22 - Message Center and Inline Access Requests (v0.6.5)
+
+Changed:
+
+- Replaced the standalone 我的权限, 批量导入记录, and 批量导入审核 pages with a header-level message center for imports, requester status, and administrator approvals.
+- Added contextual experiment, metric, and sample-source permission requests; edit requests now include view access, and administrators can approve selected requests in bulk.
+- Changed bulk import to immediately create local ledger entries only for passing rows while retaining non-imported problem rows in message-center history.
+- Kept the ledger action column at a fixed width, exposed permission-safe restricted rows with an apply action, marked required new-experiment fields, and assigned copied drafts to the current account.
+
 ## 2026-10-22 - Full-page Experiment Detail Tabs (v0.6.4)
 
 Changed:

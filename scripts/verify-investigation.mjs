@@ -268,7 +268,9 @@ assert.match(app, /body\.style\.overflow = "hidden";/, "Task 5: drawers must loc
 assert.match(app, /body\.style\.paddingRight = previousPaddingRight;/, "Task 5: scroll lock must clean up after close or unmount");
 assert.match(app, /<X\s+size=\{18\}/, "Task 5: close controls must use the lucide X icon");
 assert.match(app, /aria-label="全局搜索实验、Seed 和放量事件"/, "Task 5: global search needs a useful accessible name");
-assert.match(app, /aria-label=\{`导入批次 \$\{batch\.id\} 第 \$\{issue\.row\} 行的处理决策`\}/, "Task 5: import review selects need row-specific labels");
+assert.match(app, /data-message-center/, "Task 5: message center dialog must expose a stable browser contract");
+assert.match(app, /data-permission-request-dialog/, "Task 5: permission request dialog must expose a stable browser contract");
+assert.match(app, /一键通过/, "Task 5: administrators must be able to batch approve pending requests");
 assert.match(app, /aria-label=\{`导入预检第 \$\{row\.row\} 行状态：\$\{row\.level\}`\}/, "Task 5: import precheck statuses need semantic labels");
 assert.match(app, /data-ledger-page-prev[\s\S]*aria-label="上一页"[\s\S]*onClick=\{\(\) => goToLedgerPage\(currentLedgerPage - 1\)\}/, "Task 5: previous pagination control needs a name and interaction");
 assert.match(app, /data-ledger-page-next[\s\S]*aria-label="下一页"[\s\S]*onClick=\{\(\) => goToLedgerPage\(currentLedgerPage \+ 1\)\}/, "Task 5: next pagination control needs a name and interaction");

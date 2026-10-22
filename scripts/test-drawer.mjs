@@ -24,6 +24,10 @@ const createThenImport = pushDrawer(["create"], "import");
 assert.deepEqual(createThenImport, ["create", "import"], "upload import must be able to layer over the creation choice dialog");
 assert.deepEqual(popDrawer(createThenImport), { stack: ["create"], closed: "import", active: "create" }, "closing import must restore the creation choice dialog");
 
+const messageThenRequest = pushDrawer(["messages"], "request");
+assert.deepEqual(messageThenRequest, ["messages", "request"], "permission request must layer over the message center");
+assert.deepEqual(popDrawer(messageThenRequest), { stack: ["messages"], closed: "request", active: "messages" }, "closing the request restores the message center");
+
 const empty = popDrawer([]);
 assert.deepEqual(empty, { stack: [], closed: null, active: null }, "empty stack pop must be safe");
 

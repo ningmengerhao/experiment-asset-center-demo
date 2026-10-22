@@ -12,8 +12,6 @@ const tabs = new Set([
   "create",
   "list",
   "investigate",
-  "myImports",
-  "importReview",
   "governance",
   "permission",
 ]);

@@ -70,7 +70,7 @@ import {
   validateAlertRule,
 } from "./monitoring.mjs";
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
-import { TEST_ACCOUNTS, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
+import { INITIAL_IMPORT_BATCHES, TEST_ACCOUNTS, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
@@ -83,9 +83,6 @@ type Tab =
   | "lineage"
   | "rollout"
   | "metrics"
-  | "access"
-  | "myImports"
-  | "importReview"
   | "governance"
   | "permission";
 type DetailTab = "basic" | "lineage" | "rollout" | "validation";
@@ -98,7 +95,6 @@ type OrthogonalityMode = "当前运行实验" | "批量 seed";
 type SeedInputMode = "manual" | "template" | "random";
 type ImportIssueLevel = "通过" | "需确认" | "阻断";
 type RelationshipType = "父实验" | "子实验" | "关联实验" | "互斥实验";
-type ReviewDecision = "合并" | "覆盖" | "跳过" | "要求补充" | "确认入库";
 type ExperimentStage = "实验前" | "分流阶段" | "上线前" | "运行中" | "追溯复盘";
 type AlertSeverity = "info" | "warning" | "critical";
 type MonitorView = "alerts" | "attribution" | "rules";
@@ -262,13 +258,13 @@ interface ImportIssue {
   experimentId: string;
   level: ImportIssueLevel;
   issue: string;
-  decision: ReviewDecision;
 }
 
 interface ImportBatch {
   id: string;
   file: string;
   submitter: string;
+  submitterId?: string;
   submittedAt: string;
   status: string;
   summary: string;
@@ -522,15 +518,13 @@ const navGroups: Array<{
     role: "all",
     items: [
       { key: "list", label: "实验管理", icon: ClipboardList },
-      { key: "myImports", label: "批量导入记录", icon: Upload },
     ],
   },
   {
-    title: "指标与权限",
+    title: "指标管理",
     role: "all",
     items: [
       { key: "metrics", label: "指标管理", icon: Calculator },
-      { key: "access", label: "我的权限", icon: ShieldCheck },
     ],
   },
   {
@@ -544,7 +538,6 @@ const navGroups: Array<{
     title: "管理后台",
     role: "admin",
     items: [
-      { key: "importReview", label: "批量导入审核", icon: FileCheck2, adminOnly: true },
       { key: "governance", label: "数据治理", icon: Database, adminOnly: true },
       { key: "permission", label: "权限配置", icon: ShieldCheck, adminOnly: true },
     ],
@@ -552,7 +545,7 @@ const navGroups: Array<{
 ];
 
 const allTabs: Tab[] = ["create", ...navGroups.flatMap((group) => group.items.map((item) => item.key))];
-const adminTabs = new Set<Tab>(["importReview", "governance", "permission"]);
+const adminTabs = new Set<Tab>(["governance", "permission"]);
 const defaultLedgerFilters: LedgerFilters = {
   keyword: "",
   businessLine: "all",
@@ -577,12 +570,9 @@ const stageByTab: Record<Tab, Tab> = {
   list: "list",
   lineage: "list",
   rollout: "list",
-  myImports: "list",
-  importReview: "list",
   governance: "list",
   permission: "list",
   metrics: "list",
-  access: "list",
 };
 
 function tabFromHash(hash = typeof window !== "undefined" ? window.location.hash : "") {
@@ -646,39 +636,6 @@ function getRolloutRiskReasons(events: RolloutEvent[], event: RolloutEvent): str
   if (nearbyChanges.length) reasons.push(`7天内连续放量（相邻 ${nearbyChanges.length} 次）`);
   return reasons;
 }
-
-const reviewDecisions: ReviewDecision[] = ["合并", "覆盖", "跳过", "要求补充", "确认入库"];
-
-const importBatches: ImportBatch[] = [
-  {
-    id: "IMP-20260703-01",
-    file: "experiment_import_20260703.xlsx",
-    submitter: "当前用户",
-    submittedAt: "2026-07-03 10:30",
-    status: "待管理员审核",
-    summary: "通过 1 / 需确认 1 / 阻断 2",
-    nextAction: "管理员需处理重复实验、父实验缺失和放量异常后确认入库",
-    issues: [
-      { row: 2, experimentId: "EXP-240701-009", level: "通过", issue: "字段完整，可直接导入", decision: "确认入库" },
-      { row: 3, experimentId: "EXP-240701-010", level: "需确认", issue: "负责人缺失；来源平台命中运营表格导入", decision: "要求补充" },
-      { row: 4, experimentId: "EXP-240611-017", level: "阻断", issue: "实验 ID 已存在，需要选择覆盖、合并或跳过", decision: "合并" },
-      { row: 5, experimentId: "EXP-240701-011", level: "阻断", issue: "放量比例超过 100%；父实验不存在", decision: "跳过" },
-    ],
-  },
-  {
-    id: "IMP-20260702-03",
-    file: "member_experiment_backfill.xlsx",
-    submitter: "陈露",
-    submittedAt: "2026-07-02 16:45",
-    status: "需补充",
-    summary: "通过 6 / 需确认 2 / 阻断 0",
-    nextAction: "提交人补充来源平台别名和父实验说明",
-    issues: [
-      { row: 8, experimentId: "EXP-240628-021", level: "需确认", issue: "来源平台别名未命中生产登记名", decision: "要求补充" },
-      { row: 9, experimentId: "EXP-240628-022", level: "需确认", issue: "父子关系原因为空", decision: "要求补充" },
-    ],
-  },
-];
 
 const samplePlans: SamplePlan[] = [
   {
@@ -1149,6 +1106,11 @@ function App() {
   const [activeCheckTarget, setActiveCheckTarget] = useState("当前实验 / EXP-240610-001 · 新版首购引导流程");
   const [helpDrawer, setHelpDrawer] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [messageCenterOpen, setMessageCenterOpen] = useState(false);
+  const [messageTab, setMessageTab] = useState<"imports" | "requests" | "approvals">("imports");
+  const [permissionRequestOpen, setPermissionRequestOpen] = useState(false);
+  const [permissionRequestDraft, setPermissionRequestDraft] = useState({ scope: "experiment", resourceId: "", resourceName: "", permissions: ["experiment.view"], duration: "7", reason: "" });
+  const [selectedApprovalRequestIds, setSelectedApprovalRequestIds] = useState<string[]>([]);
   const [drawerStack, setDrawerStack] = useState<DrawerName[]>([]);
   const [focusedRolloutId, setFocusedRolloutId] = useState<string | null>(null);
   const [rolloutScope, setRolloutScope] = useState<"context" | "all">("context");
@@ -1168,7 +1130,6 @@ function App() {
   const [relationshipFilters, setRelationshipFilters] = useState({ keyword: "", type: "all", risk: "all" });
   const [selectedMetricId, setSelectedMetricId] = useState("MET-001");
   const [metricDraft, setMetricDraft] = useState<any>(null);
-  const [accessRequestDraft, setAccessRequestDraft] = useState({ scope: "metric", resourceId: "MET-003", permission: "metric.view", duration: "7", reason: "需要设计会员实验并查看历史基线" });
   const [toast, setToast] = useState<string | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLElement | null>(null);
@@ -1187,6 +1148,7 @@ function App() {
   };
 
   const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments.map((item) => experimentOverrides[item.id] ?? item)], [createdExperiments, experimentOverrides]);
+  const importBatches = (demoState.importBatches ?? INITIAL_IMPORT_BATCHES) as ImportBatch[];
 
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
@@ -1206,7 +1168,6 @@ function App() {
       return (
         matchedKeyword &&
         matchedSource &&
-        can("experiment.view", item) &&
         (filters.businessLine === "all" || item.businessLine === filters.businessLine) &&
         (filters.status === "all" || item.status === filters.status) &&
         (!ownerKeyword || item.owner.toLowerCase().includes(ownerKeyword))
@@ -1243,8 +1204,6 @@ function App() {
   const visibleGroups = navGroups
     .filter((group) => group.role === "all" || group.role === roleView)
     .map((group) => ({ ...group, items: group.items.filter((item) => {
-      if (item.key === "metrics") return demoState.metrics.some((metric: any) => can("metric.view", metric) || can("metric.edit", metric));
-      if (item.key === "access") return Boolean(activeAccount);
       return roleView === "admin" || !item.adminOnly;
     }) }));
   const activeLabel = activeTab === "create" ? "新建实验" : visibleGroups.flatMap((group) => group.items).find((item) => item.key === activeTab)?.label ?? "实验清单";
@@ -1330,6 +1289,69 @@ function App() {
       return;
     }
     window.requestAnimationFrame(() => openCreateFlow());
+  }
+
+  function createImportedExperimentRecord(row: typeof importRows[number], batchId: string, timestamp: string): ExperimentRecord {
+    return {
+      id: row.experimentId,
+      name: row.name,
+      businessLine: row.platform.includes("搜索") ? "搜索" : "增长",
+      sourcePlatform: row.platform,
+      sourceType: "表格导入",
+      owner: row.owner,
+      relationship: row.parent === "-" ? "独立实验" : "子实验",
+      parentExperiment: row.parent,
+      trafficLayer: "imported_layer",
+      userGroup: "用户",
+      rollout: row.rollout,
+      status: "pending",
+      quality: "passed",
+      startTime: timestamp,
+      lastUpdated: timestamp,
+      coreMetric: "待补齐",
+      guardrailMetric: "待补齐",
+      stageStatus: "实验前",
+      metricConfig: { metricType: "转化率", baseline: 0, mde: 0, confidence: 95, power: 80, dailyTraffic: 0 },
+      sampleDefinition: { domain: row.platform.includes("搜索") ? "搜索" : "增长", source: row.platform, window: "待补齐", unit: "用户" },
+      reviewSummary: { conclusion: "通过批量导入创建，待补齐实验设计信息。", tags: ["表格导入", batchId], similarExperiments: [], nextAction: "补齐设计信息后上线" },
+      alertStatus: "info",
+      rolloutEvents: [],
+      sourceQuality: "本地批量导入",
+      importBatchId: batchId,
+      checkSnapshot: { target: "待补齐", preAA: "待校验", uniformity: "待校验", orthogonality: "待校验", sampleScope: "待补齐", updatedAt: timestamp },
+      auditEvents: [{ time: timestamp, operator: activeAccount?.name ?? "当前用户", action: `批量导入 ${batchId}` }],
+    };
+  }
+
+  function submitBulkImport() {
+    if (!activeAccount) return;
+    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const batchId = `IMP-${Date.now()}`;
+    const passedRows = importPrecheckRows.filter((row) => row.level === "通过" && !ledgerExperiments.some((item) => item.id === row.experimentId));
+    const imported = passedRows.map((row) => createImportedExperimentRecord(row, batchId, now));
+    if (imported.length) {
+      setCreatedExperiments((current) => {
+        const nextRecords = [...imported, ...current];
+        saveCreatedRecords(nextRecords);
+        return nextRecords;
+      });
+    }
+    const issues = importPrecheckRows.map((row) => ({ ...row, issue: row.level === "通过" ? "字段完整，已导入" : `${row.issue}；未导入` }));
+    const batch: ImportBatch = {
+      id: batchId,
+      file: "experiment_import_20260703.xlsx",
+      submitter: activeAccount.name,
+      submitterId: activeAccount.id,
+      submittedAt: now,
+      status: imported.length === importPrecheckRows.length ? "已导入" : imported.length ? "部分导入" : "未导入",
+      summary: `已导入 ${imported.length} / 未导入 ${importPrecheckRows.length - imported.length}`,
+      nextAction: imported.length === importPrecheckRows.length ? "导入完成" : "查看问题行并修正后重新导入",
+      issues,
+    };
+    persistDemoState({ ...demoState, importBatches: [batch, ...importBatches], audit: [{ id: `IMPORT-${Date.now()}`, time: now, actor: activeAccount.name, action: `批量导入 ${batch.id}，已导入 ${imported.length} 行` }, ...demoState.audit] });
+    closeTopmostDrawer();
+    window.requestAnimationFrame(() => openMessageCenter("imports"));
+    showToast(imported.length ? `已直接导入 ${imported.length} 行，问题行未导入` : "没有可直接导入的通过行");
   }
 
   function navigateToCreateStep(nextStep: CreateStep, options: { replace?: boolean } = {}) {
@@ -1607,7 +1629,7 @@ function App() {
 
   function duplicateExperimentRecord(record: ExperimentRecord) {
     const sourceDraft = createDraftFromExperimentRecord(record);
-    const draft = { ...sourceDraft, recordId: "", savedStep: "basic" as CreateStep, basic: { ...sourceDraft.basic, name: `${record.name}_copy` } };
+    const draft = { ...sourceDraft, recordId: "", savedStep: "basic" as CreateStep, basic: { ...sourceDraft.basic, name: `${record.name}_copy`, owner: activeAccount?.name ?? "当前用户" } };
     const copiedRecord = createLocalExperimentRecord(draft, "draft");
     const persistedDraft = { ...draft, recordId: copiedRecord.id };
     const nextRecord = { ...copiedRecord, createDraft: persistedDraft };
@@ -1735,7 +1757,70 @@ function App() {
     if (drawer === "import") setBulkImportOpen(true);
     if (drawer === "filters") setFilterDialogOpen(true);
     if (drawer === "create") setCreateExperimentOpen(true);
+    if (drawer === "messages") setMessageCenterOpen(true);
+    if (drawer === "request") setPermissionRequestOpen(true);
     setDrawerStack((current) => pushDrawer(current, drawer));
+  }
+
+  function openMessageCenter(nextTab: "imports" | "requests" | "approvals" = "imports") {
+    setMessageTab(nextTab);
+    openDrawer("messages");
+  }
+
+  function openPermissionRequest(scope: "experiment" | "metric" | "sampleSource", resource: any, defaultPermission?: string) {
+    const permissions = scope === "sampleSource"
+      ? ["sample.use"]
+      : [defaultPermission ?? `${scope}.view`];
+    setPermissionRequestDraft({
+      scope,
+      resourceId: resource.id,
+      resourceName: resource.name ?? resource.id,
+      permissions,
+      duration: "7",
+      reason: "",
+    });
+    openDrawer("request");
+  }
+
+  function updatePermissionRequestPermission(permission: string, checked: boolean) {
+    setPermissionRequestDraft((current) => {
+      if (permission.endsWith(".edit") && checked) {
+        const viewPermission = permission.replace(".edit", ".view");
+        return { ...current, permissions: Array.from(new Set([...current.permissions, permission, viewPermission])) };
+      }
+      if (permission.endsWith(".view") && !checked && current.permissions.some((item) => item.endsWith(".edit"))) return current;
+      return { ...current, permissions: checked ? Array.from(new Set([...current.permissions, permission])) : current.permissions.filter((item) => item !== permission) };
+    });
+  }
+
+  function submitPermissionRequest() {
+    if (!activeAccount) return;
+    const requestedPermissions = permissionRequestDraft.permissions.filter(Boolean);
+    if (!requestedPermissions.length) return showToast("请至少选择一项权限");
+    if (!permissionRequestDraft.reason.trim()) return showToast("请填写申请理由");
+    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const existing = demoState.requests.find((request: any) => request.accountId === activeAccount.id && request.scope === permissionRequestDraft.scope && request.resourceId === permissionRequestDraft.resourceId && request.status === "pending");
+    const existingPermissions = Array.isArray(existing?.permissions) ? existing.permissions : existing?.permission ? [existing.permission] : [];
+    const requests = existing
+      ? demoState.requests.map((request: any) => request.id === existing.id ? { ...request, permissions: Array.from(new Set([...existingPermissions, ...requestedPermissions])), duration: permissionRequestDraft.duration, reason: permissionRequestDraft.reason, updatedAt: now } : request)
+      : [{ id: `REQ-${Date.now()}`, accountId: activeAccount.id, accountName: activeAccount.name, ...permissionRequestDraft, permissions: requestedPermissions, status: "pending", createdAt: now, decisionNote: "" }, ...demoState.requests];
+    persistDemoState({ ...demoState, requests, audit: [{ id: `REQ-AUD-${Date.now()}`, time: now, actor: activeAccount.name, action: `${existing ? "更新" : "提交"}权限申请 ${requestedPermissions.join("、")}` }, ...demoState.audit] });
+    closeTopmostDrawer();
+    showToast(existing ? "已更新待审批权限申请" : "权限申请已提交");
+  }
+
+  function decidePermissionRequests(requestIds: string[], approved: boolean) {
+    if (!activeAccount || !can("access.approve") || !requestIds.length) return showToast("只有管理员可以审批");
+    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const selectedRequests = demoState.requests.filter((request: any) => requestIds.includes(request.id) && request.status === "pending");
+    if (!selectedRequests.length) return showToast("没有可处理的待审批申请");
+    const grants = approved
+      ? [...selectedRequests.map((request: any, index: number) => ({ id: `GRANT-${Date.now()}-${index}`, accountId: request.accountId, scope: request.scope, resourceId: request.resourceId, permissions: request.permissions ?? (request.permission ? [request.permission] : []), expiresAt: new Date(Date.now() + Number(request.duration) * 86400000).toISOString().slice(0, 10) })), ...demoState.grants]
+      : demoState.grants;
+    const requests = demoState.requests.map((request: any) => requestIds.includes(request.id) && request.status === "pending" ? { ...request, status: approved ? "approved" : "rejected", decidedAt: now, decisionNote: approved ? "已通过" : "已驳回" } : request);
+    persistDemoState({ ...demoState, grants, requests, audit: [{ id: `REQ-AUD-${Date.now()}`, time: now, actor: activeAccount.name, action: `${approved ? "通过" : "驳回"} ${selectedRequests.length} 项权限申请` }, ...demoState.audit] });
+    setSelectedApprovalRequestIds((current) => current.filter((id) => !requestIds.includes(id)));
+    showToast(approved ? "权限申请已通过" : "权限申请已驳回");
   }
 
   function openDetail(experiment: ExperimentRecord | null) {
@@ -1745,9 +1830,8 @@ function App() {
   function openDetailTab(experiment: ExperimentRecord | null, nextDetailTab: DetailTab) {
     if (!experiment) return;
     if (!can("experiment.view", experiment)) {
-      setAccessRequestDraft({ ...accessRequestDraft, scope: "experiment", resourceId: experiment.id, permission: "experiment.view" });
-      navigateToTab("access");
-      showToast("没有实验详情权限，可提交申请");
+      openPermissionRequest("experiment", experiment);
+      showToast("没有实验详情权限，请提交申请");
       return;
     }
     setSelected(experiment);
@@ -1766,6 +1850,8 @@ function App() {
     if (result.closed === "import") setBulkImportOpen(false);
     if (result.closed === "filters") setFilterDialogOpen(false);
     if (result.closed === "create") setCreateExperimentOpen(false);
+    if (result.closed === "messages") setMessageCenterOpen(false);
+    if (result.closed === "request") setPermissionRequestOpen(false);
     setDrawerStack(result.stack);
   }
 
@@ -2163,6 +2249,10 @@ function App() {
             ) : null}
           </div>
           <div className="header-actions">
+            <button className="circle-button message-center-trigger" type="button" aria-label="消息中心" title="消息中心" onClick={() => openMessageCenter("imports")}>
+              <Bell size={17} />
+              {(activeAccount.role === "admin" ? demoState.requests.filter((request: any) => request.status === "pending").length : demoState.requests.filter((request: any) => request.accountId === activeAccount.id && request.status === "pending").length) ? <i aria-hidden="true" /> : null}
+            </button>
             <button id="headerHelpButton" className="circle-button header-help-button" type="button" aria-label="帮助文档" title="帮助文档" onClick={() => openDrawer("help")}>
               <HelpCircle size={17} />
             </button>
@@ -2188,7 +2278,7 @@ function App() {
 
         <main ref={mainRef} className="main" tabIndex={-1}>
           <div className="breadcrumb-bar" data-breadcrumb-page={selected ? "detail" : activeTab}>
-            {selected ? <><span>实验管理</span><span>/</span><span>实验清单</span><span>/</span><strong>{selected.name}</strong></> : <><span>{roleView === "admin" && ["importReview", "governance", "permission"].includes(activeTab) ? "管理后台" : breadcrumbGroup}</span><span>/</span><strong>{breadcrumbLabel}</strong></>}
+            {selected ? <><span>实验管理</span><span>/</span><span>实验清单</span><span>/</span><strong>{selected.name}</strong></> : <><span>{roleView === "admin" && ["governance", "permission"].includes(activeTab) ? "管理后台" : breadcrumbGroup}</span><span>/</span><strong>{breadcrumbLabel}</strong></>}
           </div>
           {investigationContext?.caseId ? (
             <section
@@ -2228,10 +2318,7 @@ function App() {
             {activeTab === "create" && renderCreateFlow()}
             {activeTab === "list" && renderLedger()}
             {activeTab === "metrics" && renderMetricLibrary()}
-            {activeTab === "access" && renderAccessCenter()}
             {activeTab === "investigate" && renderInvestigation()}
-            {activeTab === "myImports" && renderMyImports()}
-            {roleView === "admin" && activeTab === "importReview" && renderImportReview()}
             {roleView === "admin" && activeTab === "governance" && renderGovernance()}
             {roleView === "admin" && activeTab === "permission" && renderPermission()}
           </>}
@@ -2375,7 +2462,7 @@ function App() {
                 <span>上传文件</span>
                 <span>字段识别</span>
                 <span>导入预检</span>
-                <span>提交审核</span>
+                <span>直接导入</span>
               </div>
             </section>
             <section className="drawer-section">
@@ -2409,9 +2496,51 @@ function App() {
               </table>
               <div className="drawer-actions">
                 <button className="ghost-button" type="button" onClick={() => showToast("已生成问题行下载任务")}>下载问题行</button>
-                <button className="primary-button" type="button" onClick={() => showToast("已提交审核，可在批量导入记录查看状态")}>提交审核</button>
+                <button className="primary-button" type="button" onClick={submitBulkImport}>直接导入通过行</button>
               </div>
             </section>
+          </aside>
+        </div>
+      ) : null}
+
+      {messageCenterOpen && activeDrawer === "messages" ? (
+        <div className="drawer-mask filter-dialog-mask show" data-message-center-mask onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer message-center-dialog" data-message-center role="dialog" aria-modal="true" aria-labelledby="message-center-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header">
+              <div><span>通知与待办</span><h2 id="message-center-title">消息中心</h2></div>
+              <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭消息中心" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button>
+            </div>
+            <div className="message-center-tabs" role="tablist" aria-label="消息中心分类">
+              {[{ id: "imports", label: "导入记录" }, { id: "requests", label: "我的申请" }, ...(activeAccount.role === "admin" ? [{ id: "approvals", label: `待审批 ${demoState.requests.filter((request: any) => request.status === "pending").length}` }] : [])].map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={messageTab === tab.id} className={messageTab === tab.id ? "active" : ""} onClick={() => setMessageTab(tab.id as typeof messageTab)}>{tab.label}</button>)}
+            </div>
+            {messageTab === "imports" ? <section className="message-center-panel" role="tabpanel">
+              <div className="message-center-panel-head"><h3>批量导入记录</h3><span>{activeAccount.role === "admin" ? "全部批次" : "本人提交"}</span></div>
+              <div className="table-wrap"><table className="data-table compact message-import-table"><thead><tr><th>批次</th><th>文件</th><th>预检 / 导入结果</th><th>提交时间</th><th>操作</th></tr></thead><tbody>
+                {importBatches.filter((batch) => activeAccount.role === "admin" || batch.submitterId === activeAccount.id || batch.submitter === activeAccount.name).map((batch) => <tr key={batch.id}><td className="mono">{batch.id}</td><td><strong>{batch.file}</strong><span>{batch.submitter}</span></td><td><strong>{batch.status}</strong><span>{batch.summary}</span></td><td>{batch.submittedAt}</td><td><button type="button" onClick={() => showToast(`${batch.id}：${batch.nextAction}`)}>查看问题行</button></td></tr>)}
+              </tbody></table></div>
+            </section> : null}
+            {messageTab === "requests" ? <section className="message-center-panel" role="tabpanel">
+              <div className="message-center-panel-head"><h3>我的申请</h3><span>授权状态会即时生效</span></div>
+              <div className="access-request-list">{demoState.requests.filter((request: any) => request.accountId === activeAccount.id).map((request: any) => <div key={request.id}><strong>{request.resourceName ?? request.resourceId}</strong><span>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")} · {request.status === "pending" ? "待审批" : request.status === "approved" ? "已通过" : "已驳回"}</span><em>{request.createdAt} · {request.reason}</em></div>)}{!demoState.requests.some((request: any) => request.accountId === activeAccount.id) ? <p className="hint">暂无权限申请记录</p> : null}</div>
+            </section> : null}
+            {messageTab === "approvals" && activeAccount.role === "admin" ? <section className="message-center-panel" role="tabpanel">
+              <div className="message-center-panel-head"><h3>待审批权限申请</h3><button className="primary-button" type="button" disabled={!selectedApprovalRequestIds.length} onClick={() => decidePermissionRequests(selectedApprovalRequestIds, true)}>一键通过</button></div>
+              <div className="table-wrap"><table className="data-table compact approval-table"><thead><tr><th><input type="checkbox" aria-label="选择全部待审批申请" checked={demoState.requests.filter((request: any) => request.status === "pending").length > 0 && selectedApprovalRequestIds.length === demoState.requests.filter((request: any) => request.status === "pending").length} onChange={(event) => setSelectedApprovalRequestIds(event.target.checked ? demoState.requests.filter((request: any) => request.status === "pending").map((request: any) => request.id) : [])} /></th><th>申请人 / 登录名</th><th>资源类型</th><th>资源名称</th><th>权限类型</th><th>操作</th></tr></thead><tbody>
+                {demoState.requests.filter((request: any) => request.status === "pending").map((request: any) => <tr key={request.id}><td><input type="checkbox" aria-label={`选择权限申请 ${request.id}`} checked={selectedApprovalRequestIds.includes(request.id)} onChange={() => setSelectedApprovalRequestIds((current) => current.includes(request.id) ? current.filter((id) => id !== request.id) : [...current, request.id])} /></td><td><strong>{request.accountName}</strong><span>{request.accountId}</span></td><td>{request.scope === "experiment" ? "实验" : request.scope === "metric" ? "指标" : "样本来源"}</td><td>{request.resourceName ?? request.resourceId}</td><td>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")}</td><td><div className="row-actions"><button type="button" onClick={() => decidePermissionRequests([request.id], true)}>通过</button><button type="button" className="ledger-delete-action" onClick={() => decidePermissionRequests([request.id], false)}>驳回</button></div></td></tr>)}
+              </tbody></table></div>
+            </section> : null}
+          </aside>
+        </div>
+      ) : null}
+
+      {permissionRequestOpen && activeDrawer === "request" ? (
+        <div className="drawer-mask filter-dialog-mask show" data-permission-request-mask onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer permission-request-dialog" data-permission-request-dialog role="dialog" aria-modal="true" aria-labelledby="permission-request-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header"><div><span>资源权限</span><h2 id="permission-request-title">申请权限</h2></div><button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭权限申请" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button></div>
+            <div className="permission-request-resource"><span>{permissionRequestDraft.scope === "experiment" ? "实验" : permissionRequestDraft.scope === "metric" ? "指标" : "样本来源"}</span><strong>{permissionRequestDraft.resourceName}</strong></div>
+            <div className="permission-request-options">{permissionRequestDraft.scope === "sampleSource" ? <label><input type="checkbox" checked readOnly />使用</label> : <><label><input type="checkbox" checked={permissionRequestDraft.permissions.includes(`${permissionRequestDraft.scope}.view`)} onChange={(event) => updatePermissionRequestPermission(`${permissionRequestDraft.scope}.view`, event.target.checked)} />查看</label><label><input type="checkbox" checked={permissionRequestDraft.permissions.includes(`${permissionRequestDraft.scope}.edit`)} onChange={(event) => updatePermissionRequestPermission(`${permissionRequestDraft.scope}.edit`, event.target.checked)} />编辑</label></>}</div>
+            <div className="form-grid"><label className="field vertical"><span>授权时效</span><select value={permissionRequestDraft.duration} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, duration: event.target.value }))}><option value="7">7 天</option><option value="30">30 天</option></select></label><label className="field vertical wide-field"><span>申请理由</span><textarea rows={3} value={permissionRequestDraft.reason} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, reason: event.target.value }))} /></label></div>
+            <div className="drawer-actions"><button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button><button className="primary-button" type="button" onClick={submitPermissionRequest}>提交申请</button></div>
           </aside>
         </div>
       ) : null}
@@ -2502,19 +2631,19 @@ function App() {
         {createStep === "basic" ? <>
           <Panel title="实验基本信息">
             <div className="form-grid create-basic-grid">
-              <label className="field vertical wide-field"><span>实验名称</span><input data-create-basic="name" value={createDraft.basic.name} onChange={(event) => updateCreateBasic("name", event.target.value)} /></label>
-              <label className="field vertical"><span>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
-              <label className="field vertical"><span>实验域</span><select data-create-basic="domain" value={createDraft.basic.domain} onChange={(event) => updateCreateBasic("domain", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
-              <label className="field vertical"><span>负责人</span><input data-create-basic="owner" value={createDraft.basic.owner} onChange={(event) => updateCreateBasic("owner", event.target.value)} list="owner-options" /></label>
+              <label className="field vertical wide-field"><span><i className="required-marker" aria-hidden="true">*</i>实验名称</span><input data-create-basic="name" value={createDraft.basic.name} onChange={(event) => updateCreateBasic("name", event.target.value)} /></label>
+              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>实验域</span><select data-create-basic="domain" value={createDraft.basic.domain} onChange={(event) => updateCreateBasic("domain", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>负责人</span><input data-create-basic="owner" value={createDraft.basic.owner} onChange={(event) => updateCreateBasic("owner", event.target.value)} list="owner-options" /></label>
               <label className="field vertical"><span>实验类型</span><select value={createDraft.basic.experimentType} onChange={(event) => updateCreateBasic("experimentType", event.target.value)}><option>A/B</option><option>A/A</option><option>灰度验证</option></select></label>
               <label className="field vertical"><span>计划开始时间</span><input type="date" value={createDraft.basic.planStartDate} onChange={(event) => updateCreateBasic("planStartDate", event.target.value)} /></label>
-              <label className="field vertical wide-field"><span>实验假设</span><textarea data-create-basic="hypothesis" rows={4} value={createDraft.basic.hypothesis} onChange={(event) => updateCreateBasic("hypothesis", event.target.value)} /></label>
+              <label className="field vertical wide-field"><span><i className="required-marker" aria-hidden="true">*</i>实验假设</span><textarea data-create-basic="hypothesis" rows={4} value={createDraft.basic.hypothesis} onChange={(event) => updateCreateBasic("hypothesis", event.target.value)} /></label>
             </div>
             <section className="design-section" data-create-metric-selection>
               <h3>指标选择</h3>
               <div className="form-grid">
                 <label className="field vertical">
-                  <span>核心指标</span>
+                  <span><i className="required-marker" aria-hidden="true">*</i>核心指标</span>
                   <select data-create-core-metric value={createDraft.basic.coreMetricId} onChange={(event) => { const metric = coreMetricOptions.find((item) => item.id === event.target.value); if (metric) selectCoreMetric(metric); }}>
                     <option value="">请选择核心指标</option>
                     {coreMetricOptions.map((metric) => <option key={metric.id} value={metric.id}>{metric.name} · {metric.updatedAt}</option>)}
@@ -2525,23 +2654,23 @@ function App() {
                 <div className="guardrail-metric-heading"><span>护栏指标（可选）</span><button className="inline-add-button" data-create-guardrail-add type="button" aria-label="新增护栏指标" title="新增护栏指标" onClick={addGuardrailMetric}><Plus size={15} /></button></div>
                 {createDraft.basic.guardrailMetricIds.map((metricId, index) => <div className="guardrail-metric-row" key={`guardrail-${index}`}><select data-create-guardrail-select={index} value={metricId} onChange={(event) => setGuardrailMetric(index, event.target.value)}><option value="">请选择护栏指标</option>{getGuardrailMetricOptions(index).map((metric) => <option key={metric.id} value={metric.id}>{metric.name} · {metric.updatedAt}</option>)}</select><button className="icon-button guardrail-metric-remove" data-create-guardrail-remove={index} type="button" aria-label="删除护栏指标" title="删除护栏指标" onClick={() => removeGuardrailMetric(index)}><X size={15} /></button></div>)}
               </div>
-              {restrictedMetrics.length ? <p className="hint">受限指标：{restrictedMetrics.map((metric) => <button key={metric.id} type="button" className="link-button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: metric.id, permission: "metric.view" }); navigateToTab("access"); }}>{metric.id}</button>)}</p> : null}
+              {restrictedMetrics.length ? <p className="hint">受限指标：{restrictedMetrics.map((metric) => <button key={metric.id} type="button" className="link-button" onClick={() => openPermissionRequest("metric", metric)}>{metric.id}</button>)}</p> : null}
             </section>
             <section className="design-section" data-create-sample-range>
               <h3>样本范围与历史时间</h3>
               <div className="form-grid">
-                <label className="field vertical"><span>样本来源</span><select value={createDraft.basic.sampleRange.sourceId} onChange={(event) => { const source = availableSources.find((item) => item.id === event.target.value); updateSampleRange({ sourceId: event.target.value, sourceKind: source?.kind ?? "sql", taskId: source?.taskId ?? "" }); }}><option value="">请选择样本来源</option>{availableSources.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.frequency}</option>)}</select></label>
-                <label className="field vertical"><span>随机化单位</span><select value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
-                <label className="field vertical"><span>历史开始日期</span><input type="date" value={createDraft.basic.sampleRange.startDate} onChange={(event) => updateSampleRange({ startDate: event.target.value })} /></label>
-                <label className="field vertical"><span>历史结束日期</span><input type="date" value={createDraft.basic.sampleRange.endDate} onChange={(event) => updateSampleRange({ endDate: event.target.value })} /></label>
-                <label className="field vertical wide-field"><span>{createDraft.basic.sampleRange.sourceKind === "sql" ? "样本 SQL" : "推送任务 ID"}</span>{createDraft.basic.sampleRange.sourceKind === "sql" ? <textarea data-create-sample-sql rows={4} value={createDraft.basic.sampleRange.sql} onChange={(event) => updateSampleRange({ sql: event.target.value })} /> : <input data-create-sample-task value={createDraft.basic.sampleRange.taskId} onChange={(event) => updateSampleRange({ taskId: event.target.value })} />}</label>
+                <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>样本来源</span><select value={createDraft.basic.sampleRange.sourceId} onChange={(event) => { const source = availableSources.find((item) => item.id === event.target.value); updateSampleRange({ sourceId: event.target.value, sourceKind: source?.kind ?? "sql", taskId: source?.taskId ?? "" }); }}><option value="">请选择样本来源</option>{availableSources.map((source) => <option key={source.id} value={source.id}>{source.name} · {source.frequency}</option>)}</select></label>
+                <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>随机化单位</span><select value={createDraft.seed.sampleUnit} onChange={(event) => updateCreateSeedConfig("sampleUnit", event.target.value)}><option>用户</option><option>设备</option><option>订单</option><option>会话</option></select></label>
+                <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>历史开始日期</span><input type="date" value={createDraft.basic.sampleRange.startDate} onChange={(event) => updateSampleRange({ startDate: event.target.value })} /></label>
+                <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>历史结束日期</span><input type="date" value={createDraft.basic.sampleRange.endDate} onChange={(event) => updateSampleRange({ endDate: event.target.value })} /></label>
+                <label className="field vertical wide-field"><span><i className="required-marker" aria-hidden="true">*</i>{createDraft.basic.sampleRange.sourceKind === "sql" ? "样本 SQL" : "推送任务 ID"}</span>{createDraft.basic.sampleRange.sourceKind === "sql" ? <textarea data-create-sample-sql rows={4} value={createDraft.basic.sampleRange.sql} onChange={(event) => updateSampleRange({ sql: event.target.value })} /> : <input data-create-sample-task value={createDraft.basic.sampleRange.taskId} onChange={(event) => updateSampleRange({ taskId: event.target.value })} />}</label>
                 <label className="field vertical wide-field"><span>过滤条件</span><textarea data-create-filter-condition rows={3} placeholder="例如：entry = 'new_home' AND is_test_user = 0" value={createDraft.basic.sampleRange.filterCondition} onChange={(event) => updateSampleRange({ filterCondition: event.target.value })} /></label>
               </div>
               <div className="history-snapshot"><span>历史样本快照</span><strong>基线 {historySnapshot.baseline}%</strong><strong>日流量 {formatNumber(historySnapshot.dailyTraffic)}</strong><strong>覆盖率 {historySnapshot.coverage}%</strong><strong>稳定 {historySnapshot.stableDays} 天</strong><em>{historySnapshot.startDate} 至 {historySnapshot.endDate} · {historySnapshot.updatedAt || "无更新时间"}</em></div>
               {finalSampleSql ? <pre className="sample-sql-preview" data-create-final-sql>{finalSampleSql}</pre> : null}
             </section>
           </Panel>
-          {!selectedSource && restrictedSources.length ? <p className="hint">当前账号没有可用样本来源。受限来源：{restrictedSources.map((source) => <button key={source.id} type="button" className="link-button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "sampleSource", resourceId: source.id, permission: "sample.use" }); navigateToTab("access"); }}>{source.id}</button>)}</p> : null}
+          {!selectedSource && restrictedSources.length ? <p className="hint">当前账号没有可用样本来源。受限来源：{restrictedSources.map((source) => <button key={source.id} type="button" className="link-button" onClick={() => openPermissionRequest("sampleSource", source, "sample.use")}>{source.id}</button>)}</p> : null}
           {renderFooter()}
         </> : null}
 
@@ -2685,14 +2814,6 @@ function App() {
           ))}
         </datalist>
 
-        {roleView === "admin" ? (
-          <div className="toolbar ledger-admin-toolbar">
-            <button className="ghost-button" type="button" onClick={() => navigateToTab("importReview")}>
-              <Database size={16} /> 导入审核
-            </button>
-          </div>
-        ) : null}
-
         <div className="table-wrap" data-page-core="experiment-ledger">
           <table className="data-table sticky-actions ledger-table">
             <thead>
@@ -2707,15 +2828,16 @@ function App() {
               </tr>
             </thead>
             <tbody>
-              {pagedExperiments.map((item) => (
-                <tr key={item.id}>
+              {pagedExperiments.map((item) => {
+                const permitted = can("experiment.view", item);
+                return <tr key={item.id} data-experiment-access={permitted ? "granted" : "restricted"}>
                   <td className="ledger-primary-cell">
                     <strong>{item.name}</strong>
                     <span className="mono">{item.id}</span>
-                    <span>{item.coreMetric} · 护栏：{item.guardrailMetric}</span>
+                    <span>{permitted ? `${item.coreMetric} · 护栏：${item.guardrailMetric}` : "指标信息受限"}</span>
                   </td>
                   <td>
-                    <div className="source-platform-cell">
+                    {permitted ? <div className="source-platform-cell">
                       <span>{item.businessLine} · {item.trafficLayer}</span>
                       <strong className="source-platform-name" title={item.sourcePlatform}>
                         {item.sourcePlatform}
@@ -2723,42 +2845,42 @@ function App() {
                       <span className="source-platform-meta">
                         <span className={`source-tag source-${item.sourceType}`}>{item.sourceType}</span>
                       </span>
-                    </div>
+                    </div> : <span>{item.businessLine} · 来源受限</span>}
                   </td>
                   <td>
                     <strong>{item.owner}</strong>
                   </td>
                   <td>
-                    <strong>{item.relationship}</strong>
-                    <span>{item.parentExperiment === "-" ? "无父实验" : `父实验：${item.parentExperiment}`}</span>
+                    {permitted ? <><strong>{item.relationship}</strong><span>{item.parentExperiment === "-" ? "无父实验" : `父实验：${item.parentExperiment}`}</span></> : <span>关系受限</span>}
                   </td>
                   <td>
-                    <div className="rollout-cell">
+                    {permitted ? <div className="rollout-cell">
                       <div>
                         <span style={{ width: `${item.rollout}%` }} />
                       </div>
                       <em>{item.rollout}%</em>
-                    </div>
+                    </div> : null}
                     <span className={`status-dot ${item.status}`} aria-label={`实验状态：${statusText[item.status]}`}>
                       <i />
                       {statusText[item.status]}
                     </span>
                   </td>
                   <td>
-                    <span className={`quality-badge ${item.quality}`}>{qualityText[item.quality]}</span>
-                    <span>{item.lastUpdated}</span>
+                    {permitted ? <><span className={`quality-badge ${item.quality}`}>{qualityText[item.quality]}</span><span>{item.lastUpdated}</span></> : <span>质量信息受限</span>}
                   </td>
                   <td>
                     <div className="row-actions">
-                      <button type="button" onClick={() => openDetail(item)}>查看详情</button>
-                      <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button>
-                      {(item.status === "draft" || item.status === "pending") && can("experiment.edit", item) ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
-                      {can("experiment.lifecycle", item) ? getExperimentStatusActions(item.status).map((action) => <button type="button" key={action.next} data-experiment-lifecycle={`${item.status}-${action.next}`} onClick={() => updateExperimentLifecycle(item, action)}>{action.action}</button>) : null}
-                      {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
+                      {!permitted ? <button type="button" data-request-experiment={item.id} onClick={() => openPermissionRequest("experiment", item)}>申请</button> : <>
+                        <button type="button" onClick={() => openDetail(item)}>查看详情</button>
+                        <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button>
+                        {(item.status === "draft" || item.status === "pending") && can("experiment.edit", item) ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
+                        {can("experiment.lifecycle", item) ? getExperimentStatusActions(item.status).map((action) => <button type="button" key={action.next} data-experiment-lifecycle={`${item.status}-${action.next}`} onClick={() => updateExperimentLifecycle(item, action)}>{action.action}</button>) : null}
+                        {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
+                      </>}
                     </div>
                   </td>
-                </tr>
-              ))}
+                </tr>;
+              })}
             </tbody>
           </table>
         </div>
@@ -2826,30 +2948,10 @@ function App() {
             <label className="field vertical"><span>查看权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.viewers ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, viewers: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
             <label className="field vertical"><span>编辑权限账号</span><input disabled={!canEditSelected && Boolean(draft.id)} value={(draft.editors ?? []).join(",")} onChange={(event) => setMetricDraft({ ...draft, editors: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
           </div>
-          <div className="drawer-actions">{canEditSelected || !draft.id ? <button className="primary-button" type="button" onClick={saveMetric}>保存指标</button> : <button className="ghost-button" type="button" onClick={() => { setAccessRequestDraft({ ...accessRequestDraft, scope: "metric", resourceId: draft.id, permission: "metric.edit" }); navigateToTab("access"); }}>申请编辑权限</button>}{selectedMetric && canEditSelected ? <button className="ghost-button" type="button" onClick={deactivateMetric}>停用指标</button> : null}</div>
-        </> : <p className="hint">请选择一个指标。</p>}</section>
+          <div className="drawer-actions">{canEditSelected || !draft.id ? <button className="primary-button" type="button" onClick={saveMetric}>保存指标</button> : <button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", draft, "metric.edit")}>申请编辑权限</button>}{selectedMetric && canEditSelected ? <button className="ghost-button" type="button" onClick={deactivateMetric}>停用指标</button> : null}</div>
+        </> : selectedMetric ? <div className="metric-restricted-state"><strong>该指标详情受限</strong><span>申请查看或编辑权限后可访问指标定义与来源配置。</span><button className="primary-button" type="button" onClick={() => openPermissionRequest("metric", selectedMetric)}>申请</button></div> : <p className="hint">请选择一个指标。</p>}</section>
       </div>
     </section>;
-  }
-
-  function renderAccessCenter() {
-    if (!activeAccount) return null;
-    const resources = accessRequestDraft.scope === "metric" ? demoState.metrics : accessRequestDraft.scope === "sampleSource" ? demoState.sampleSources : accessRequestDraft.scope === "domain" ? ["增长", "会员", "推荐", "交易", "搜索"].map((domain) => ({ id: domain, name: domain })) : ledgerExperiments;
-    const ownRequests = activeAccount.role === "admin" ? demoState.requests : demoState.requests.filter((request: any) => request.accountId === activeAccount.id);
-    const submitRequest = () => {
-      if (!accessRequestDraft.reason.trim()) return showToast("请填写申请理由");
-      if (demoState.requests.some((request: any) => request.accountId === activeAccount.id && request.scope === accessRequestDraft.scope && request.resourceId === accessRequestDraft.resourceId && request.permission === accessRequestDraft.permission && request.status === "pending")) return showToast("存在相同的待审批申请");
-      const request = { id: `REQ-${Date.now()}`, accountId: activeAccount.id, accountName: activeAccount.name, ...accessRequestDraft, status: "pending", createdAt: new Date().toISOString().slice(0, 16).replace("T", " "), decisionNote: "" };
-      persistDemoState({ ...demoState, requests: [request, ...demoState.requests], audit: [{ id: `REQ-AUD-${Date.now()}`, time: request.createdAt, actor: activeAccount.name, action: `提交权限申请 ${request.permission}` }, ...demoState.audit] });
-      showToast("权限申请已提交");
-    };
-    const decideRequest = (request: any, approved: boolean) => {
-      if (!can("access.approve")) return showToast("只有管理员可以审批");
-      const updated = { ...request, status: approved ? "approved" : "rejected", decidedAt: new Date().toISOString().slice(0, 16).replace("T", " "), decisionNote: approved ? "已通过" : "已拒绝" };
-      const grants = approved ? [{ id: `GRANT-${Date.now()}`, accountId: request.accountId, scope: request.scope, resourceId: request.resourceId, permissions: [request.permission], expiresAt: new Date(Date.now() + Number(request.duration) * 86400000).toISOString().slice(0, 10) }, ...demoState.grants] : demoState.grants;
-      persistDemoState({ ...demoState, grants, requests: demoState.requests.map((item: any) => item.id === request.id ? updated : item), audit: [{ id: `REQ-AUD-${Date.now()}`, time: updated.decidedAt, actor: activeAccount.name, action: `${approved ? "通过" : "拒绝"}权限申请 ${request.id}` }, ...demoState.audit] });
-    };
-    return <section className="module-page access-center" data-page-id="access" data-page-core="access-center"><div className="page-heading"><div><h1>我的权限</h1><p>申请实验、业务域、指标或样本来源的查看和使用权限。</p></div></div><div className="module-grid two"><Panel title="申请权限"><div className="form-grid"><label className="field vertical"><span>资源范围</span><select value={accessRequestDraft.scope} onChange={(event) => setAccessRequestDraft({ ...accessRequestDraft, scope: event.target.value, resourceId: "" })}><option value="experiment">指定实验</option><option value="domain">业务域</option><option value="metric">指标</option><option value="sampleSource">样本来源</option></select></label><label className="field vertical"><span>目标资源</span><select value={accessRequestDraft.resourceId} onChange={(event) => setAccessRequestDraft({ ...accessRequestDraft, resourceId: event.target.value })}>{resources.map((resource: any) => <option key={resource.id} value={resource.id}>{resource.name ?? resource.id}</option>)}</select></label><label className="field vertical"><span>申请权限</span><select value={accessRequestDraft.permission} onChange={(event) => setAccessRequestDraft({ ...accessRequestDraft, permission: event.target.value })}><option value="metric.view">查看指标详情</option><option value="metric.edit">编辑指标</option><option value="experiment.view">查看实验详情</option><option value="sample.use">使用样本来源</option></select></label><label className="field vertical"><span>授权时效</span><select value={accessRequestDraft.duration} onChange={(event) => setAccessRequestDraft({ ...accessRequestDraft, duration: event.target.value })}><option value="7">7 天</option><option value="30">30 天</option></select></label><label className="field vertical wide-field"><span>申请理由</span><textarea rows={3} value={accessRequestDraft.reason} onChange={(event) => setAccessRequestDraft({ ...accessRequestDraft, reason: event.target.value })} /></label></div><button className="primary-button" type="button" onClick={submitRequest}>提交申请</button></Panel><Panel title={activeAccount.role === "admin" ? "审批队列" : "我的申请"}><div className="access-request-list">{ownRequests.map((request: any) => <div key={request.id}><strong>{request.permission}</strong><span>{request.scope} · {request.resourceId} · {request.status}</span><em>{request.accountName} · {request.createdAt}</em>{activeAccount.role === "admin" && request.status === "pending" ? <div className="row-actions"><button type="button" onClick={() => decideRequest(request, true)}>通过</button><button type="button" className="ledger-delete-action" onClick={() => decideRequest(request, false)}>拒绝</button></div> : null}</div>)}{!ownRequests.length ? <p className="hint">暂无申请记录</p> : null}</div></Panel></div></section>;
   }
 
   function renderEvaluation() {
@@ -3696,109 +3798,6 @@ function App() {
 
   function renderInvestigation() {
     return renderInvestigationWorkbench();
-  }
-
-  function renderMyImports() {
-    return (
-      <section className="module-page" data-page-id="myImports">
-        <div className="page-heading">
-          <h1>批量导入记录</h1>
-          <p>普通用户查看自己提交的导入草稿、预检结果和管理员审核状态。</p>
-        </div>
-        <div className="table-wrap" data-page-core="import-history">
-          <table className="data-table compact">
-            <thead>
-              <tr>
-                <th>批次</th>
-                <th>文件</th>
-                <th>预检</th>
-                <th>审核状态</th>
-                <th>提交人</th>
-                <th>下一步</th>
-              </tr>
-            </thead>
-            <tbody>
-              {importBatches.map((batch) => (
-                <tr key={batch.id}>
-                  <td className="mono">{batch.id}</td>
-                  <td>{batch.file}</td>
-                  <td>{batch.summary}</td>
-                  <td>{batch.status}</td>
-                  <td>{batch.submitter}</td>
-                  <td>{batch.nextAction}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
-  }
-
-  function renderImportReview() {
-    return (
-      <section className="module-page adminOnly">
-        <div className="page-heading">
-          <h1>批量导入审核</h1>
-          <p>管理员处理字段映射、冲突记录、确认入库和失败行导出。</p>
-        </div>
-        <div className="module-grid two">
-          <Panel title="待审核批次">
-            {importBatches.map((batch) => (
-              <div className="review-batch" key={batch.id}>
-                <strong>{batch.id}</strong>
-                <span>{batch.file} · {batch.summary}</span>
-                <p>{batch.nextAction}</p>
-              </div>
-            ))}
-          </Panel>
-          <Panel title="审核动作">
-            <div className="checklist">
-              {reviewDecisions.map((decision) => (
-                <span key={decision}>{decision}</span>
-              ))}
-            </div>
-            <p className="hint">管理员按行处理阻断和需确认项；确认入库后写入实验清单，并保留审核记录。</p>
-          </Panel>
-        </div>
-        <div className="table-wrap">
-          <table className="data-table compact">
-            <thead>
-              <tr>
-                <th>批次</th>
-                <th>行号</th>
-                <th>实验 ID</th>
-                <th>问题等级</th>
-                <th>问题</th>
-                <th>处理决策</th>
-              </tr>
-            </thead>
-            <tbody>
-              {importBatches.flatMap((batch) =>
-                batch.issues.map((issue) => (
-                  <tr key={`${batch.id}-${issue.row}`}>
-                    <td className="mono">{batch.id}</td>
-                    <td>{issue.row}</td>
-                    <td className="mono">{issue.experimentId}</td>
-                    <td>
-                      <span className={`quality-badge ${issue.level === "通过" ? "passed" : issue.level === "需确认" ? "warning" : "critical"}`} aria-label={`导入批次 ${batch.id} 第 ${issue.row} 行状态：${issue.level}`}>{issue.level}</span>
-                    </td>
-                    <td>{issue.issue}</td>
-                    <td>
-                      <select defaultValue={issue.decision} aria-label={`导入批次 ${batch.id} 第 ${issue.row} 行的处理决策`}>
-                        {reviewDecisions.map((decision) => (
-                          <option key={decision}>{decision}</option>
-                        ))}
-                      </select>
-                    </td>
-                  </tr>
-                )),
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    );
   }
 
   function renderGovernance() {

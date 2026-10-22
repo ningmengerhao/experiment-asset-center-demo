@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
+import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
 
 const state = createInitialDemoState();
 const admin = getAccount("admin.zhao");
@@ -20,6 +20,25 @@ assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240618-006",
 assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), false);
 assert.equal(canAccess(state, businessOwner, "experiment.view", { id: "EXP-240610-001", businessLine: "增长", owner: "赵晨" }), true);
 assert.equal(canAccess(state, viewer, "sample.use", growthSource), false);
+
+const grantState = {
+  ...state,
+  grants: [
+    { id: "GRANT-METRIC-EDIT", accountId: viewer.id, scope: "metric", resourceId: growthMetric.id, permissions: ["metric.edit"], expiresAt: "2026-12-31" },
+    { id: "GRANT-EXPERIMENT-EDIT", accountId: viewer.id, scope: "experiment", resourceId: "EXP-240610-001", permissions: ["experiment.edit"], expiresAt: "2026-12-31" },
+  ],
+};
+assert.equal(canAccess(grantState, viewer, "metric.edit", growthMetric), true);
+assert.equal(canAccess(grantState, viewer, "metric.view", growthMetric), true, "metric edit grants must imply view access");
+assert.equal(canAccess(grantState, viewer, "experiment.edit", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true);
+assert.equal(canAccess(grantState, viewer, "experiment.view", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true, "experiment edit grants must imply view access");
+assert.equal(canAccess(grantState, viewer, "experiment.lifecycle", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), false, "granted editing must not grant lifecycle control");
+assert.equal(INITIAL_IMPORT_BATCHES.every((batch) => batch.status !== "待管理员审核"), true);
+
+const storage = new Map();
+storage.set("experiment-asset-demo-access-v1", JSON.stringify({ requests: [{ id: "REQ-OLD", permission: "metric.view" }] }));
+const migratedState = loadDemoState({ getItem: (key) => storage.get(key) ?? null });
+assert.deepEqual(migratedState.requests[0].permissions, ["metric.view"], "legacy scalar request permissions must migrate");
 
 assert.equal(validateSampleSql("SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'").valid, true);
 assert.equal(validateSampleSql("SELECT * FROM t WHERE dt='${BATCH_DATE}'").valid, false);

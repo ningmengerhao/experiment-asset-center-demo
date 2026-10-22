@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
-const app = read("src/App.tsx");
+const app = read("src/App.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
 const css = read("src/styles.css");
 const investigation = read("src/investigation.mjs");
 const dist = read("dist/index.html");
@@ -17,7 +17,7 @@ const monitorPage = app.slice(app.indexOf("function renderInvestigationWorkbench
 const permissionPage = app.slice(app.indexOf("function renderPermission"), app.indexOf("function renderSampleTool"));
 const evaluationPage = app.slice(app.indexOf("function renderEvaluation"), app.indexOf("function renderExperimentList"));
 const checkPage = app.slice(app.indexOf("function renderTestTool"), app.indexOf("function renderConflict"));
-const metricLibraryPage = app.slice(app.indexOf("function renderMetricLibrary"), app.indexOf("function renderAccessCenter"));
+const metricLibraryPage = app.slice(app.indexOf("function renderMetricLibrary"), app.indexOf("function renderEvaluation"));
 
 const checks = [];
 function check(name, condition) {
@@ -40,16 +40,16 @@ check("artifact does not contain the React development runtime", !dist.includes(
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
 check("ordinary-user navigation starts with experiment management and removes legacy stage groups", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*label:\s*"实验管理"/.test(app) && !app.includes('title: "首页"') && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
-check("experiment management keeps only the ledger and import entry", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*key:\s*"myImports"/.test(app) && !app.includes('key: "seedHistory"') && !app.includes('{ key: "lineage", label: "父子实验"') && !app.includes('{ key: "rollout", label: "放量历史"'));
+check("experiment management keeps only the ledger", /title:\s*"实验管理"[\s\S]*key:\s*"list"/.test(app) && !app.includes('key: "myImports"') && !app.includes('key: "importReview"') && !app.includes('key: "access"'));
 check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
 check("permission page supports role profiles scopes and audit", includesAll(permissionPage, ["角色档案", "可见范围", "动作权限", "代理负责人", "规则阈值范围", "权限变更记录"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
   'activeTab === "investigate"', 'activeTab === "list"',
-  'activeTab === "myImports"', 'selected ? renderExperimentDetail(selected)',
+  'activeTab === "metrics"', 'selected ? renderExperimentDetail(selected)',
 ]));
-check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "importReview", "governance", "permission"]));
+check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "governance", "permission"]) && !app.includes('activeTab === "importReview"'));
 check("navigation and hash share one entry point", includesAll(app, ["function navigateToTab", 'window.addEventListener("hashchange"', "buildInvestigationHash", "recoverInvestigationLocation"]));
 check("left navigation exposes current-page semantics", includesAll(app, ['aria-label="主导航"', 'aria-current={activeTab === item.key ? "page" : undefined}']));
 check("stage controls are semantic buttons", includesAll(app, ["stageTargets.map", "stage-step", 'aria-current={stageByTab[activeTab] === step.tab ? "step" : undefined}']));
@@ -69,7 +69,10 @@ check("new experiment saves editable ledger drafts and always starts fresh", inc
 check("ledger uses unified statuses and conditional lifecycle actions", includesAll(app, ['"pending"', 'pending: "待上线"', 'getExperimentStatusActions', 'data-experiment-lifecycle', 'data-delete-experiment', 'updateExperimentLifecycle', 'deleteExperimentRecord', 'createLocalExperimentRecord({ ...createDraft, savedStep: "validation" }, "pending")']) && includesAll(css, [".ledger-delete-action", ".status-dot.draft"]));
 check("all ledger records can be duplicated into editable drafts", includesAll(app, ["createDraftFromExperimentRecord", "duplicateExperimentRecord", "_copy", "data-duplicate-experiment", 'createLocalExperimentRecord(draft, "draft")']));
 check("custom seeds can be validated in the creation flow", includesAll(app, ["自定义随机数种子", "data-create-custom-seed", "data-validate-custom-seed", "validateCustomCreateSeed", "customCandidate", "isValidCustomSeed"]) && includesAll(css, [".create-custom-seed-field", ".create-custom-seed-check"]));
-check("metric library and offline access center support role-free metrics and experiment design", includesAll(app, ["renderMetricLibrary", "renderAccessCenter", "data-page-id=\"metrics\"", "data-page-id=\"access\"", "指标管理", "历史开始日期", "历史结束日期", "data-create-core-metric", "data-create-guardrail-add", "data-create-guardrail-remove", "data-create-filter-condition", "appendFilterCondition", "validateFilterCondition", "resolveHistoricalSnapshot", "selectDemoAccount"]) && !metricLibraryPage.includes("指标类型") && !metricLibraryPage.includes("type: ") && includesAll(css, [".metric-library-layout", ".demo-login", ".guardrail-metric-field", ".sample-sql-preview", ".access-request-list"]));
+check("metric library, permission dialogs, and experiment design share offline access data", includesAll(app, ["renderMetricLibrary", "openPermissionRequest", "data-permission-request-dialog", "data-message-center", "消息中心", "历史开始日期", "历史结束日期", "data-create-core-metric", "data-create-guardrail-add", "data-create-guardrail-remove", "data-create-filter-condition", "appendFilterCondition", "validateFilterCondition", "resolveHistoricalSnapshot", "selectDemoAccount"]) && !metricLibraryPage.includes("指标类型") && !metricLibraryPage.includes("type: ") && includesAll(css, [".metric-library-layout", ".demo-login", ".guardrail-metric-field", ".sample-sql-preview", ".message-center-dialog", ".permission-request-dialog"]));
+check("ledger uses fixed actions and permission-safe rows", includesAll(app, ['data-experiment-access', 'data-request-experiment', 'openPermissionRequest("experiment", item)', '指标信息受限', '关系受限']) && includesAll(css, ['width: 256px', '.ledger-table.sticky-actions th:last-child', '.ledger-table .row-actions']));
+check("create wizard marks actual first-step requirements", includesAll(app, ['className="required-marker"', '核心指标', '样本来源', '样本 SQL']) && includesAll(css, ['.required-marker', 'var(--danger-text)']));
+check("message center replaces import and access pages", includesAll(app, ['messageCenterOpen', 'messageTab', '待审批权限申请', '一键通过', 'submitBulkImport', '直接导入通过行']) && !app.includes('activeTab === "myImports"') && !app.includes('activeTab === "access"'));
 check("full detail uses accessible tabs and keeps investigation last", includesAll(app, ['data-page-id="detail"', 'role="tablist"', 'role="tab"', 'aria-selected={detailTab === item.id}', '"基础信息"', '"父子实验"', '"放量历史"', '"校验快照"', 'data-start-investigation={experiment.id}', 'onKeyDown={selectAdjacentTab}', 'openDetailTab(currentExperiment, "validation")']) && includesAll(css, [".experiment-detail-page", ".detail-tabs", ".detail-summary-grid", ".detail-tab-panel"]));
 check("removed relationship and rollout routes fall back to the ledger", !/^\s*"lineage",/m.test(investigation) && !/^\s*"rollout",/m.test(investigation));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
@@ -77,7 +80,7 @@ check("investigation browser selectors exist", includesAll(app, ["data-start-inv
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
   "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"",
   "data-page-id=\"check\"", "data-page-id=\"investigate\"", "data-page-id=\"list\"",
-  "data-page-id=\"detail\"", "data-page-id=\"myImports\"", "data-page-core=",
+  "data-page-id=\"detail\"", "data-page-core=",
 ]));
 check("investigation context exposes exact state attributes", includesAll(app, [
   "data-investigation-experiment", "data-investigation-alert", "data-investigation-range", "data-investigation-focus",
