@@ -14,7 +14,7 @@ const browserVerifier = read("scripts/verify-browser.mjs");
 const packageManifest = JSON.parse(read("package.json"));
 const seedPage = app.slice(app.indexOf("function renderSeedTool"), app.indexOf("function renderInvestigationWorkbench"));
 const monitorPage = app.slice(app.indexOf("function renderInvestigationWorkbench"), app.indexOf("function renderImportReview"));
-const permissionPage = app.slice(app.indexOf("function renderPermission"), app.indexOf("function renderSampleTool"));
+const permissionPage = app.slice(app.indexOf("function renderRoles"), app.indexOf("function renderSampleTool"));
 const evaluationPage = app.slice(app.indexOf("function renderEvaluation"), app.indexOf("function renderExperimentList"));
 const checkPage = app.slice(app.indexOf("function renderTestTool"), app.indexOf("function renderConflict"));
 const metricLibraryPage = app.slice(app.indexOf("function renderMetricLibrary"), app.indexOf("function renderEvaluation"));
@@ -28,7 +28,7 @@ function includesAll(source, tokens) {
 }
 
 const inlineScripts = [...dist.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
-const inlineStyles = [...dist.matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)];
+const inlineStyles = [...dist.slice(0, dist.search(/<script\b/i)).matchAll(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi)];
 const externalAssets = /<(?:script|link)\b[^>]*(?:src|href)\s*=\s*["'][^"']+["']/i.test(dist);
 
 check("generated artifact has one inline script", inlineScripts.length === 1 && inlineScripts[0][2].trim().length > 10_000);
@@ -44,12 +44,12 @@ check("experiment management keeps only the ledger", /title:\s*"实验管理"[\s
 check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
-check("permission page supports role profiles scopes and audit", includesAll(permissionPage, ["角色档案", "可见范围", "动作权限", "代理负责人", "规则阈值范围", "权限变更记录"]));
+check("permission configuration supports role and person management", includesAll(permissionPage, ["角色管理", "人员管理", "业务域范围", "功能权限", "分配角色", "至少保留一个启用管理员"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
   'activeTab === "investigate"', 'activeTab === "list"',
   'activeTab === "metrics"', 'selected ? renderExperimentDetail(selected)',
 ]));
-check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "governance", "permission"]) && !app.includes('activeTab === "importReview"'));
+check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', 'activeTab === "roles"', 'activeTab === "people"']) && !app.includes('activeTab === "importReview"'));
 check("navigation and hash share one entry point", includesAll(app, ["function navigateToTab", 'window.addEventListener("hashchange"', "buildInvestigationHash", "recoverInvestigationLocation"]));
 check("left navigation exposes current-page semantics", includesAll(app, ['aria-label="主导航"', 'aria-current={activeTab === item.key ? "page" : undefined}']));
 check("stage controls are semantic buttons", includesAll(app, ["stageTargets.map", "stage-step", 'aria-current={stageByTab[activeTab] === step.tab ? "step" : undefined}']));
@@ -72,7 +72,8 @@ check("custom seeds can be validated in the creation flow", includesAll(app, ["�
 check("metric library, permission dialogs, and experiment design share offline access data", includesAll(app, ["renderMetricLibrary", "openPermissionRequest", "data-permission-request-dialog", "data-message-center", "消息中心", "历史开始日期", "历史结束日期", "data-create-core-metric", "data-create-guardrail-add", "data-create-guardrail-remove", "data-create-filter-condition", "appendFilterCondition", "validateFilterCondition", "resolveHistoricalSnapshot", "selectDemoAccount"]) && !metricLibraryPage.includes("指标类型") && !metricLibraryPage.includes("type: ") && includesAll(css, [".metric-library-layout", ".demo-login", ".guardrail-metric-field", ".sample-sql-preview", ".message-center-dialog", ".permission-request-dialog"]));
 check("ledger uses fixed actions and permission-safe rows", includesAll(app, ['data-experiment-access', 'data-request-experiment', 'openPermissionRequest("experiment", item)', '指标信息受限', '关系受限']) && includesAll(css, ['width: 256px', '.ledger-table.sticky-actions th:last-child', '.ledger-table .row-actions']));
 check("create wizard marks actual first-step requirements", includesAll(app, ['className="required-marker"', '核心指标', '样本来源', '样本 SQL']) && includesAll(css, ['.required-marker', 'var(--danger-text)']));
-check("message center replaces import and access pages", includesAll(app, ['messageCenterOpen', 'messageTab', '待审批权限申请', '一键通过', 'submitBulkImport', '直接导入通过行']) && !app.includes('activeTab === "myImports"') && !app.includes('activeTab === "access"'));
+check("message center stores local upload results", includesAll(app, ['messageCenterOpen', 'messageTab', '待审批权限申请', '一键通过', 'submitBulkImport', '共上传', '下载失败记录', 'downloadImportTemplate', 'handleImportFile']) && !app.includes('activeTab === "myImports"') && !app.includes('activeTab === "access"'));
+check("metric management uses a ledger and separate editor", includesAll(app, ['data-page-id="metrics"', 'data-page-id="metricEditor"', 'openMetricEditor', '启用中的指标不允许删除', 'metricReferenced', 'data-metric-access']) && includesAll(css, ['.ledger-table.sticky-actions']));
 check("full detail uses accessible tabs and keeps investigation last", includesAll(app, ['data-page-id="detail"', 'role="tablist"', 'role="tab"', 'aria-selected={detailTab === item.id}', '"基础信息"', '"父子实验"', '"放量历史"', '"校验快照"', 'data-start-investigation={experiment.id}', 'onKeyDown={selectAdjacentTab}', 'openDetailTab(currentExperiment, "validation")']) && includesAll(css, [".experiment-detail-page", ".detail-tabs", ".detail-summary-grid", ".detail-tab-panel"]));
 check("removed relationship and rollout routes fall back to the ledger", !/^\s*"lineage",/m.test(investigation) && !/^\s*"rollout",/m.test(investigation));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));

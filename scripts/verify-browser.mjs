@@ -611,6 +611,7 @@ async function run() {
     await waitFor("new experiment import option", () => evaluate(`Boolean(document.querySelector("[data-create-experiment-dialog]"))`));
     await physicalClick('[data-create-method="import"]');
     await waitFor("upload import reuses import drawer", () => evaluate(`document.querySelector(".import-drawer")?.getAttribute("aria-modal") === "true"`));
+    assert.equal(await evaluate(`Boolean(document.querySelector('.import-drawer input[type="file"][accept*=".xlsx"]')) && [...document.querySelectorAll('.import-drawer button')].some((button) => button.textContent.includes("模板下载"))`), true, "Import drawer must provide an xlsx file selector and template download.");
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
@@ -646,11 +647,19 @@ async function run() {
     await waitFor("batch approval", () => evaluate(`!document.querySelector('[data-message-center] [aria-label^="选择权限申请"]')`));
     pass("message center supports contextual requests and administrator approval");
 
-    for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout", "#access", "#myImports", "#importReview"]) {
+    await openUrl(`${distUrl}#roles`);
+    await waitFor("administrator persists after refresh", () => evaluate(`document.querySelector('[data-page-id="roles"]')?.textContent.includes("角色管理")`));
+    await openUrl(`${distUrl}#people`);
+    await waitFor("people management", () => evaluate(`document.querySelector('[data-page-id="people"]')?.textContent.includes("人员管理")`));
+    pass("administrator role and people pages persist across reloads");
+
+    for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout", "#access", "#myImports", "#importReview", "#governance"]) {
       await openUrl(`${distUrl}${legacyHash}`);
       await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#list"`));
       await expectPageContract("list", "实验清单", "experiment-ledger");
     }
+    await openUrl(`${distUrl}#permission`);
+    await waitFor("permission route compatibility", () => evaluate(`location.hash === "#roles"`));
     pass("legacy stage routes normalize to the experiment ledger");
 
     for (const viewport of viewports) {

@@ -57,7 +57,8 @@ for (const [name, location] of invalidLocationCases) {
   assert.deepEqual(parseInvestigationLocation(location), { tab: "list", context: null }, name);
 }
 
-assert.equal(parseInvestigationLocation("#governance").tab, "governance");
+assert.equal(parseInvestigationLocation("#governance").tab, "list");
+assert.equal(parseInvestigationLocation("#permission").tab, "roles");
 assert.equal(parseInvestigationLocation("#create?step=sample").tab, "create");
 assert.equal(buildInvestigationHash("not-a-tab", context), "#list?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
 

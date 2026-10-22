@@ -11,9 +11,11 @@ export const allowedTransitions = Object.freeze({
 const tabs = new Set([
   "create",
   "list",
+  "metrics",
+  "metricEditor",
   "investigate",
-  "governance",
-  "permission",
+  "roles",
+  "people",
 ]);
 const timeRanges = new Set(["7d", "14d", "30d"]);
 const evidenceFocuses = new Set(["overview", "relationship", "rollout", "seed", "validation", "metric"]);
@@ -96,8 +98,11 @@ export function parseInvestigationLocation(hash) {
 
   const fragment = hash.startsWith("#") ? hash.slice(1) : hash;
   const separator = fragment.indexOf("?");
-  const tab = separator === -1 ? fragment : fragment.slice(0, separator);
+  let tab = separator === -1 ? fragment : fragment.slice(0, separator);
   const query = separator === -1 ? "" : fragment.slice(separator + 1);
+
+  if (tab === "permission") tab = "roles";
+  if (tab === "governance") tab = "list";
 
   if (!tabs.has(tab)) return fallbackLocation();
 
@@ -141,8 +146,10 @@ function isInvalidInvestigationHash(hash, parsed) {
   if (!fragment) return false;
 
   const separator = fragment.indexOf("?");
-  const tab = separator === -1 ? fragment : fragment.slice(0, separator);
+  let tab = separator === -1 ? fragment : fragment.slice(0, separator);
   const query = separator === -1 ? "" : fragment.slice(separator + 1);
+  if (tab === "permission") tab = "roles";
+  if (tab === "governance") tab = "list";
   if (!tab || !tabs.has(tab)) return true;
 
   const params = decodeQuery(query);

@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-22 - Local Import and Role Administration (v0.6.6)
+
+Changed:
+
+- Added browser-local `.xlsx` template download, file parsing, direct passing-row imports, persisted batch totals, and failed-row workbook downloads from the message center.
+- Rebuilt 指标管理 as a permission-aware ledger with a separate configuration page, enable/disable actions, and safe deletion rules for inactive, unreferenced metrics.
+- Replaced 数据治理 and the old permission-profile workbench with 管理员-only 角色管理 and 人员管理; users now receive permissions from assignable roles while administrator identity persists across refreshes.
+
 ## 2026-10-22 - Message Center and Inline Access Requests (v0.6.5)
 
 Changed:

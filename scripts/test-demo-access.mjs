@@ -2,10 +2,9 @@ import assert from "node:assert/strict";
 import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
 
 const state = createInitialDemoState();
-const admin = getAccount("admin.zhao");
-const businessOwner = getAccount("business.liu");
-const metricEditor = getAccount("metric.editor.wu");
-const viewer = getAccount("viewer.sun");
+const admin = getAccount("admin.zhao", state);
+const fullEditor = getAccount("editor.wu", state);
+const viewer = getAccount("viewer.sun", state);
 const growthMetric = INITIAL_METRICS.find((metric) => metric.id === "MET-001");
 const tradeMetric = INITIAL_METRICS.find((metric) => metric.id === "MET-005");
 const memberMetric = INITIAL_METRICS.find((metric) => metric.id === "MET-003");
@@ -14,11 +13,12 @@ const growthSource = INITIAL_SAMPLE_SOURCES.find((source) => source.id === "SRC-
 assert.equal(INITIAL_METRICS.every((metric) => !("type" in metric)), true);
 
 assert.equal(canAccess(state, admin, "metric.edit", growthMetric), true);
-assert.equal(canAccess(state, metricEditor, "metric.edit", tradeMetric), true);
-assert.equal(canAccess(state, metricEditor, "metric.edit", memberMetric), false);
+assert.equal(canAccess(state, fullEditor, "metric.edit", tradeMetric), true);
+assert.equal(canAccess(state, fullEditor, "metric.edit", memberMetric), true);
 assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240618-006", domain: "搜索", owner: "刘昕" }), true);
-assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), false);
-assert.equal(canAccess(state, businessOwner, "experiment.view", { id: "EXP-240610-001", businessLine: "增长", owner: "赵晨" }), true);
+assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240611-017", domain: "会员", owner: "陈露" }), false);
+assert.equal(canAccess(state, fullEditor, "experiment.edit", { id: "EXP-240610-001", businessLine: "增长", owner: "赵晨" }), true);
+assert.equal(canAccess(state, fullEditor, "access.approve"), false);
 assert.equal(canAccess(state, viewer, "sample.use", growthSource), false);
 
 const grantState = {
@@ -39,6 +39,7 @@ const storage = new Map();
 storage.set("experiment-asset-demo-access-v1", JSON.stringify({ requests: [{ id: "REQ-OLD", permission: "metric.view" }] }));
 const migratedState = loadDemoState({ getItem: (key) => storage.get(key) ?? null });
 assert.deepEqual(migratedState.requests[0].permissions, ["metric.view"], "legacy scalar request permissions must migrate");
+assert.equal(migratedState.accounts.every((account) => ["admin", "user"].includes(account.role)), true, "legacy accounts must migrate to the two account types");
 
 assert.equal(validateSampleSql("SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'").valid, true);
 assert.equal(validateSampleSql("SELECT * FROM t WHERE dt='${BATCH_DATE}'").valid, false);

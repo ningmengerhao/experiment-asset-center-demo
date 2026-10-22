@@ -28,7 +28,8 @@ const staticBuilder = fs.readFileSync("scripts/build-static.mjs", "utf8")
   .replace(/\/\/[^\n]*/g, "");
 
 function extractStaticAsset(html, tagName) {
-  const matches = [...html.matchAll(new RegExp(`<${tagName}\\b([^>]*)>([\\s\\S]*?)<\\/${tagName}>`, "gi"))];
+  const source = tagName === "style" ? html.slice(0, html.search(/<script\b/i)) : html;
+  const matches = [...source.matchAll(new RegExp(`<${tagName}\\b([^>]*)>([\\s\\S]*?)<\\/${tagName}>`, "gi"))];
   return matches.map((match) => ({ attributes: match[1], content: match[2] }));
 }
 
