@@ -39,14 +39,14 @@ check("artifact is generated from React production source", includesAll(builder,
 check("artifact does not contain the React development runtime", !dist.includes("react.development.js") && !dist.includes("Download the React DevTools"));
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
-check("ordinary-user navigation starts with experiment management and removes legacy stage groups", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*label:\s*"实验管理"/.test(app) && !app.includes('title: "首页"') && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
+check("ordinary-user navigation starts with the home dashboard and removes legacy stage groups", /title:\s*"总览"[\s\S]*key:\s*"home"[\s\S]*label:\s*"首页"/.test(app) && /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*label:\s*"实验管理"/.test(app) && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
 check("experiment management keeps only the ledger", /title:\s*"实验管理"[\s\S]*key:\s*"list"/.test(app) && !app.includes('key: "myImports"') && !app.includes('key: "importReview"') && !app.includes('key: "access"'));
 check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
 check("permission configuration supports role and person management", includesAll(permissionPage, ["角色管理", "人员管理", "业务域范围", "功能权限", "分配角色", "至少保留一个启用管理员"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
-  'activeTab === "investigate"', 'activeTab === "list"',
+  'activeTab === "home"', 'activeTab === "investigate"', 'activeTab === "list"',
   'activeTab === "metrics"', 'selected ? renderExperimentDetail(selected)',
 ]));
 check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', 'activeTab === "roles"', 'activeTab === "people"']) && !app.includes('activeTab === "importReview"'));
@@ -72,20 +72,22 @@ check("custom seeds can be validated in the creation flow", includesAll(app, ["�
 check("metric library, permission dialogs, and experiment design share offline access data", includesAll(app, ["renderMetricLibrary", "openPermissionRequest", "data-permission-request-dialog", "data-message-center", "消息中心", "历史开始日期", "历史结束日期", "data-create-core-metric", "data-create-guardrail-add", "data-create-guardrail-remove", "data-create-filter-condition", "appendFilterCondition", "validateFilterCondition", "resolveHistoricalSnapshot", "selectDemoAccount"]) && !metricLibraryPage.includes("指标类型") && !metricLibraryPage.includes("type: ") && includesAll(css, [".metric-library-layout", ".demo-login", ".guardrail-metric-field", ".sample-sql-preview", ".message-center-dialog", ".permission-request-dialog"]));
 check("ledger uses fixed actions and permission-safe rows", includesAll(app, ['data-experiment-access', 'data-request-experiment', 'openPermissionRequest("experiment", item)', '指标信息受限', '关系受限']) && includesAll(css, ['width: 256px', '.ledger-table.sticky-actions th:last-child', '.ledger-table .row-actions']));
 check("create wizard marks actual first-step requirements", includesAll(app, ['className="required-marker"', '核心指标', '样本来源', '样本 SQL']) && includesAll(css, ['.required-marker', 'var(--danger-text)']));
-check("message center stores local upload results", includesAll(app, ['messageCenterOpen', 'messageTab', '待审批权限申请', '一键通过', 'submitBulkImport', '共上传', '下载失败记录', 'downloadImportTemplate', 'handleImportFile']) && !app.includes('activeTab === "myImports"') && !app.includes('activeTab === "access"'));
+check("message center stores local upload results without auto-opening after import", includesAll(app, ['messageCenterOpen', 'messageTab', '待审批权限申请', '一键通过', 'submitBulkImport', '共上传', '下载失败记录', 'downloadImportTemplate', 'handleImportFile']) && !app.slice(app.indexOf('function submitBulkImport'), app.indexOf('function downloadImportTemplate')).includes('openMessageCenter') && !app.includes('activeTab === "myImports"') && !app.includes('activeTab === "access"'));
 check("metric management uses a ledger and separate editor", includesAll(app, ['data-page-id="metrics"', 'data-page-id="metricEditor"', 'openMetricEditor', '启用中的指标不允许删除', 'metricReferenced', 'data-metric-access']) && includesAll(css, ['.ledger-table.sticky-actions']));
+check("metric editor removes unit and denominator and the library supports ledger-style filters", includesAll(app, ['data-metric-filters', 'data-metric-filter="keyword"', 'data-metric-filter="domain"', 'data-metric-filter="status"', 'data-metric-filter="owner"']) && !metricLibraryPage.includes('<span>单位</span>') && !metricLibraryPage.includes('<span>分母</span>'));
+check("home dashboard exposes permission-scoped observation cards and drill-downs", includesAll(app, ['function renderHome', 'data-page-id="home"', '运行中实验', '待上线实验', '需关注异常', '已结束实验', 'dashboardExperiments', 'data-home-filter="anomaly"']) && includesAll(css, ['.home-dashboard', '.home-stat-grid', '.home-dashboard-grid']));
+check("import uses a centered dialog with template and upload entry points", includesAll(app, ['data-import-dialog-mask', 'data-import-dialog', 'import-template-tile', 'import-upload-zone']) && includesAll(css, ['.import-dialog', '.import-entry-layout', '.import-template-tile', '.import-upload-zone']));
+check("role and people lists support searches and compact aligned permission choices", includesAll(app, ['data-role-filters', 'data-person-filters', 'compact-choice-grid', 'compact-choice', 'data-page-id="roleEditor"', 'data-page-id="personEditor"']) && includesAll(css, ['.compact-choice', 'width: 16px', '.permission-choice-grid', '.admin-editor-page']));
 check("full detail uses accessible tabs and keeps investigation last", includesAll(app, ['data-page-id="detail"', 'role="tablist"', 'role="tab"', 'aria-selected={detailTab === item.id}', '"基础信息"', '"父子实验"', '"放量历史"', '"校验快照"', 'data-start-investigation={experiment.id}', 'onKeyDown={selectAdjacentTab}', 'openDetailTab(currentExperiment, "validation")']) && includesAll(css, [".experiment-detail-page", ".detail-tabs", ".detail-summary-grid", ".detail-tab-panel"]));
 check("removed relationship and rollout routes fall back to the ledger", !/^\s*"lineage",/m.test(investigation) && !/^\s*"rollout",/m.test(investigation));
-check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
-check("investigation browser selectors exist", includesAll(app, ["data-start-investigation", "data-investigation-status", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]));
+check("home is the route fallback", includesAll(investigation, ['return { tab: "home", context: null };', 'return { tab: "home", context: stored, invalidHash: true, shouldPersist: false };']));
+check("investigation keeps its interaction selectors while hiding the global context bar", includesAll(app, ["data-start-investigation", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]) && !app.includes('data-investigation-status'));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
   "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"",
-  "data-page-id=\"check\"", "data-page-id=\"investigate\"", "data-page-id=\"list\"",
+  "data-page-id=\"check\"", "data-page-id=\"investigate\"", "data-page-id=\"home\"", "data-page-id=\"list\"",
   "data-page-id=\"detail\"", "data-page-core=",
 ]));
-check("investigation context exposes exact state attributes", includesAll(app, [
-  "data-investigation-experiment", "data-investigation-alert", "data-investigation-range", "data-investigation-focus",
-]));
+check("global investigation context bar is not rendered", !app.includes('investigation-context-bar') && !app.includes('data-investigation-experiment'));
 check("mobile navigation is a horizontal rail", includesAll(css, ["@media (max-width: 760px)", ".sidebar-nav {", "overflow-x: auto", ".nav-item {"]));
 check("page shell permits only local table overflow", includesAll(css, [".table-wrap", "overflow-x: auto", ".app-shell", "min-width: 0"]));
 check("keyboard focus styles are visible", includesAll(css, [":focus-visible", "outline: 2px solid"]));

@@ -73,14 +73,14 @@ assert.equal(canonicalLocation.context?.timeRange, storedContext.timeRange);
 // verifier-side model of URL/storage precedence.
 saveInvestigationContext(storedContext, storage);
 const invalidRecovery = recoverInvestigationLocation("#investigate?experiment=EXP%3Cscript%3E", storage);
-assert.equal(invalidRecovery.tab, "list");
+assert.equal(invalidRecovery.tab, "home");
 assert.equal(invalidRecovery.invalidHash, true);
 assert.equal(invalidRecovery.shouldPersist, false);
 assert.equal(invalidRecovery.context?.caseId, storedContext.caseId);
 assert.equal(loadInvestigationContext(storage)?.caseId, storedContext.caseId);
 assert.match(
   investigation,
-  /if \(invalidHash\)\s*\{\s*return \{ tab: "list", context: stored, invalidHash: true, shouldPersist: false \};/,
+  /if \(invalidHash\)\s*\{\s*return \{ tab: "home", context: stored, invalidHash: true, shouldPersist: false \};/,
   "Recovery: invalid hash branch must retain validated storage without persistence",
 );
 
@@ -90,7 +90,7 @@ assert.equal(urlOverride.context?.evidenceFocus, "rollout");
 assert.equal(urlOverride.shouldPersist, true);
 saveInvestigationContext(urlOverride.context, storage);
 assert.equal(loadInvestigationContext(storage)?.timeRange, "7d");
-assert.equal(buildInvestigationHash("lineage", loadInvestigationContext(storage)), "#list?experiment=EXP-240611-017&alert=ALT-001&range=7d&focus=rollout");
+assert.equal(buildInvestigationHash("lineage", loadInvestigationContext(storage)), "#home?experiment=EXP-240611-017&alert=ALT-001&range=7d&focus=rollout");
 
 // The real state machine permits one legal transition and rejects a shortcut.
 const resolved = transitionInvestigation(storedContext, "resolved", "已定位放量窗口重叠");
@@ -125,9 +125,8 @@ assert.doesNotMatch(app, /saveInvestigationContext\(null/, "React: invalid URL m
 assert.match(app, /LOCAL_CASE_SEQUENCE_PREFIX/, "React: missing dedicated local case sequence key");
 assert.match(app, /function\s+createLocalCaseId\s*\(/, "React: missing resilient local case identifier helper");
 assert.match(app, /sessionStorage\.setItem\(sequenceKey/, "React: local case sequence is not persisted independently");
-assert.match(app, /本地临时排查编号/, "React: case value must be labelled as a local temporary number");
-assert.match(app, /investigation-context-bar/, "React: missing investigation context bar");
-assert.match(css, /\.investigation-context-bar/, "CSS: missing investigation context bar styles");
+assert.doesNotMatch(app, /本地临时排查编号/, "React: the retired global case banner must not be rendered");
+assert.doesNotMatch(app, /investigation-context-bar/, "React: the global investigation context bar must not be rendered");
 
 // Task 4: evidence workbench contract. These checks intentionally target
 // semantic controls and shared investigation context instead of copied labels.
@@ -323,7 +322,6 @@ for (const token of [
   "pushDrawer",
   "popDrawer",
   "data-start-investigation",
-  "data-investigation-status",
   "data-evidence-focus",
   "data-relationship-node",
   "data-rollout-event",

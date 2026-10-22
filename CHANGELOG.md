@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-22 - Dashboard and Administration Polish (v0.6.7)
+
+Changed:
+
+- Added a permission-scoped `#home` dashboard for running, pending, anomalous, and completed experiments, plus business-domain summaries, attention items, and recent rollout activity. Empty and invalid hashes now route to the dashboard while `#list` remains the experiment ledger.
+- Removed the global investigation context banner while retaining URL/session-based investigation context and monitoring workflows.
+- Reworked experiment-ledger import into a centered modal with separate template-download and file-upload entry points; successful import now closes the dialog without opening the message center.
+- Removed metric unit and denominator configuration, added ledger-style filtering to metric, role, and people tables, and rebuilt role/person edit selection areas with compact aligned checkboxes.
+
 ## 2026-10-22 - Local Import and Role Administration (v0.6.6)
 
 Changed:

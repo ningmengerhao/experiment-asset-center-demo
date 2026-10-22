@@ -75,6 +75,7 @@ import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterConditi
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
+  | "home"
   | "create"
   | "evaluate"
   | "list"
@@ -108,7 +109,11 @@ type LedgerFilters = {
   sourcePlatformKeyword: string;
   status: string;
   owner: string;
+  alertOnly: boolean;
 };
+type MetricFilters = { keyword: string; domain: string; status: string; owner: string };
+type RoleFilters = { keyword: string; status: string };
+type PersonFilters = { keyword: string; role: string; roleId: string; status: string };
 type CreateSampleField = Exclude<keyof CreateExperimentDraft["sample"], "splitGroups">;
 type InvestigationStartOptions = {
   alertId?: string;
@@ -520,6 +525,13 @@ const navGroups: Array<{
   items: Array<{ key: Tab; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }>;
 }> = [
   {
+    title: "总览",
+    role: "all",
+    items: [
+      { key: "home", label: "首页", icon: LayoutDashboard },
+    ],
+  },
+  {
     title: "实验管理",
     role: "all",
     items: [
@@ -558,7 +570,11 @@ const defaultLedgerFilters: LedgerFilters = {
   sourcePlatformKeyword: "",
   status: "all",
   owner: "",
+  alertOnly: false,
 };
+const defaultMetricFilters: MetricFilters = { keyword: "", domain: "all", status: "all", owner: "" };
+const defaultRoleFilters: RoleFilters = { keyword: "", status: "all" };
+const defaultPersonFilters: PersonFilters = { keyword: "", role: "all", roleId: "all", status: "all" };
 const LEDGER_PAGE_SIZE = 10;
 const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "evaluate", label: "实验前评估" },
@@ -568,6 +584,7 @@ const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "list", label: "追溯复盘" },
 ];
 const stageByTab: Record<Tab, Tab> = {
+  home: "home",
   create: "create",
   evaluate: "evaluate",
   seed: "seed",
@@ -1083,6 +1100,9 @@ function App() {
   const toastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [filters, setFilters] = useState<LedgerFilters>(defaultLedgerFilters);
   const [filterDraft, setFilterDraft] = useState<LedgerFilters>(defaultLedgerFilters);
+  const [metricFilters, setMetricFilters] = useState<MetricFilters>(defaultMetricFilters);
+  const [roleFilters, setRoleFilters] = useState<RoleFilters>(defaultRoleFilters);
+  const [personFilters, setPersonFilters] = useState<PersonFilters>(defaultPersonFilters);
   const [ledgerPage, setLedgerPage] = useState(1);
   const [ledgerPageInput, setLedgerPageInput] = useState("1");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
@@ -1183,10 +1203,22 @@ function App() {
         matchedSource &&
         (filters.businessLine === "all" || item.businessLine === filters.businessLine) &&
         (filters.status === "all" || item.status === filters.status) &&
-        (!ownerKeyword || item.owner.toLowerCase().includes(ownerKeyword))
+        (!ownerKeyword || item.owner.toLowerCase().includes(ownerKeyword)) &&
+        (!filters.alertOnly || item.alertStatus === "warning" || item.alertStatus === "critical")
       );
     });
   }, [filters, ledgerExperiments]);
+  const dashboardExperiments = useMemo(
+    () => ledgerExperiments.filter((experiment) => can("experiment.view", experiment)),
+    [ledgerExperiments, demoState, activeAccount],
+  );
+  const dashboardRecentRollouts = useMemo(
+    () => dashboardExperiments
+      .flatMap((experiment) => experiment.rolloutEvents.map((event) => ({ experiment, event })))
+      .sort((left, right) => right.event.time.localeCompare(left.event.time))
+      .slice(0, 5),
+    [dashboardExperiments],
+  );
   const ledgerPagination = paginate(filteredExperiments, ledgerPage, LEDGER_PAGE_SIZE);
   const ledgerPageCount = ledgerPagination.pageCount;
   const currentLedgerPage = ledgerPagination.currentPage;
@@ -1371,7 +1403,6 @@ function App() {
     persistDemoState({ ...demoState, importBatches: [batch, ...importBatches], audit: [{ id: `IMPORT-${Date.now()}`, time: now, actor: activeAccount.name, action: `批量导入 ${batch.id}，已导入 ${imported.length} 行` }, ...demoState.audit] });
     setUploadedImport(null);
     closeTopmostDrawer();
-    window.requestAnimationFrame(() => openMessageCenter("imports"));
     showToast("已上传，导入结果可在消息中心查看。");
   }
 
@@ -2337,41 +2368,8 @@ function App() {
           <div className="breadcrumb-bar" data-breadcrumb-page={selected ? "detail" : activeTab}>
             {selected ? <><span>实验管理</span><span>/</span><span>实验清单</span><span>/</span><strong>{selected.name}</strong></> : <><span>{roleView === "admin" && ["roles", "people"].includes(activeTab) ? "权限配置" : breadcrumbGroup}</span><span>/</span><strong>{breadcrumbLabel}</strong></>}
           </div>
-          {investigationContext?.caseId ? (
-            <section
-              className="investigation-context-bar"
-              aria-label="当前本地排查上下文"
-              data-investigation-experiment={investigationContext.experimentId}
-              data-investigation-alert={investigationContext.alertId ?? ""}
-              data-investigation-range={investigationContext.timeRange}
-              data-investigation-focus={investigationContext.evidenceFocus}
-            >
-              <div className="investigation-context-main">
-                <span className="investigation-context-case">本地临时排查编号 {investigationContext.caseId}</span>
-                <strong>{investigationContext.experimentId}</strong>
-                <span>近 {investigationContext.timeRange.replace("d", " 天")}</span>
-                <span className={`investigation-status ${investigationContext.status}`} data-investigation-status={investigationContext.status}>{investigationStatusText[investigationContext.status]}</span>
-                <span>负责人：{investigationContext.owner}</span>
-                <span>{evidenceTimeline.length} 条证据</span>
-              </div>
-              <div className="investigation-context-actions">
-                <button type="button" className="link-button" data-evidence-focus="overview" onClick={() => navigateWithInvestigation("investigate", "overview")}>查看证据</button>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  disabled={investigationContext.status === "closed"}
-                  onClick={() => {
-                    const note = window.prompt("请输入本地排查结论（至少 6 个字符）", investigationContext.resolution);
-                    if (note === null) return;
-                    updateInvestigationStatus(investigationContext.status === "resolved" ? "closed" : "resolved", note);
-                  }}
-                >
-                  {investigationContext.status === "closed" ? "本地排查已结束" : "结束本地排查"}
-                </button>
-              </div>
-            </section>
-          ) : null}
           {selected ? renderExperimentDetail(selected) : <>
+            {activeTab === "home" && renderHome()}
             {activeTab === "create" && renderCreateFlow()}
             {activeTab === "list" && renderLedger()}
             {activeTab === "metrics" && renderMetricLibrary()}
@@ -2496,8 +2494,8 @@ function App() {
       ) : null}
 
       {bulkImportOpen && activeDrawer === "import" ? (
-        <div className="drawer-mask show" onClick={closeTopmostDrawer}>
-          <aside ref={drawerRef} className="drawer import-drawer" role="dialog" aria-modal="true" aria-labelledby="import-drawer-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+        <div className="drawer-mask filter-dialog-mask show" data-import-dialog-mask onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer import-dialog" data-import-dialog role="dialog" aria-modal="true" aria-labelledby="import-drawer-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header">
               <div><span>批量导入</span><h2 id="import-drawer-title">上传实验台账</h2></div>
               <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭批量导入" onClick={closeTopmostDrawer}>
@@ -2507,7 +2505,10 @@ function App() {
             <section className="drawer-section">
               <h3>上传文件</h3>
               <input ref={uploadInputRef} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => handleImportFile(event.target.files?.[0])} />
-              <div className="import-file-row"><div><strong>{uploadedImport?.fileName ?? "请选择标准 .xlsx 文件"}</strong><span>{uploadedImport ? `已解析 ${uploadedImport.rows.length} 条记录` : "仅支持标准实验台账模板"}</span></div><div className="row-actions"><button className="ghost-button" type="button" onClick={downloadImportTemplate}>模板下载</button><button className="primary-button" type="button" onClick={() => uploadInputRef.current?.click()}>{uploadedImport ? "重新上传" : "选择文件"}</button></div></div>
+              <div className="import-entry-layout">
+                <button className="import-template-tile" type="button" onClick={downloadImportTemplate} aria-label="下载实验台账模板"><Download size={26} aria-hidden="true" /><span>模板下载</span></button>
+                <button className="import-upload-zone" type="button" onClick={() => uploadInputRef.current?.click()}><Upload size={22} aria-hidden="true" /><strong>{uploadedImport?.fileName ?? "选择 .xlsx 文件"}</strong><span>{uploadedImport ? `已解析 ${uploadedImport.rows.length} 条记录，点击可重新上传` : "仅支持标准实验台账模板"}</span></button>
+              </div>
             </section>
             <section className="drawer-section">
               <h3>导入预检</h3>
@@ -2782,6 +2783,40 @@ function App() {
     );
   }
 
+  function renderHome() {
+    const running = dashboardExperiments.filter((experiment) => experiment.status === "running");
+    const pending = dashboardExperiments.filter((experiment) => experiment.status === "pending");
+    const ended = dashboardExperiments.filter((experiment) => experiment.status === "ended");
+    const anomalies = dashboardExperiments.filter((experiment) => experiment.alertStatus === "warning" || experiment.alertStatus === "critical");
+    const domainStats = ALL_DOMAINS.map((domain) => ({
+      domain,
+      total: dashboardExperiments.filter((experiment) => experiment.businessLine === domain).length,
+      running: dashboardExperiments.filter((experiment) => experiment.businessLine === domain && experiment.status === "running").length,
+    })).filter((item) => item.total > 0);
+    const openDashboardList = (next: Partial<LedgerFilters>) => {
+      setFilters({ ...defaultLedgerFilters, ...next });
+      setLedgerPage(1);
+      navigateToTab("list");
+    };
+    return <section className="home-dashboard module-page" data-page-id="home" data-page-core="home-dashboard">
+      <div className="page-heading home-heading">
+        <div><h1>首页</h1><p>查看当前账号可访问实验的运行状态、异常风险和近期放量动态。</p></div>
+        <span className="quiet-badge">数据更新时间：2026-07-03 10:30</span>
+      </div>
+      <div className="home-stat-grid" aria-label="实验观测指标">
+        <button type="button" className="home-stat-card" data-home-filter="running" onClick={() => openDashboardList({ status: "running" })}><span>运行中实验</span><strong>{running.length}</strong><small>查看运行中实验</small></button>
+        <button type="button" className="home-stat-card" data-home-filter="pending" onClick={() => openDashboardList({ status: "pending" })}><span>待上线实验</span><strong>{pending.length}</strong><small>查看待上线实验</small></button>
+        <button type="button" className="home-stat-card danger" data-home-filter="anomaly" onClick={() => openDashboardList({ alertOnly: true })}><span>需关注异常</span><strong>{anomalies.length}</strong><small>查看异常实验</small></button>
+        <button type="button" className="home-stat-card" data-home-filter="ended" onClick={() => openDashboardList({ status: "ended" })}><span>已结束实验</span><strong>{ended.length}</strong><small>查看已结束实验</small></button>
+      </div>
+      <div className="home-dashboard-grid">
+        <section className="home-section"><div className="home-section-heading"><div><h2>业务域概览</h2><p>按当前可访问实验统计</p></div><button type="button" className="link-button" onClick={() => openDashboardList({})}>查看实验管理</button></div><div className="home-domain-list">{domainStats.map((item) => <button type="button" key={item.domain} onClick={() => openDashboardList({ businessLine: item.domain })}><span>{item.domain}</span><strong>{item.total}</strong><small>运行中 {item.running}</small></button>)}</div></section>
+        <section className="home-section"><div className="home-section-heading"><div><h2>需关注实验</h2><p>存在预警或需处理告警</p></div><button type="button" className="link-button" onClick={() => openDashboardList({ alertOnly: true })}>查看全部</button></div><div className="home-attention-list">{anomalies.length ? anomalies.slice(0, 4).map((experiment) => <button type="button" key={experiment.id} onClick={() => openDetail(experiment)}><span className={`quality-badge ${experiment.alertStatus === "critical" ? "critical" : "warning"}`}>{experiment.alertStatus === "critical" ? "需处理" : "预警"}</span><strong>{experiment.name}</strong><small>{experiment.owner} · {experiment.businessLine}</small></button>) : <p className="empty-inline">暂无需关注的实验</p>}</div></section>
+      </div>
+      <section className="home-section home-rollout-section"><div className="home-section-heading"><div><h2>近期放量动态</h2><p>最近的放量与状态变更记录</p></div></div><div className="home-rollout-list">{dashboardRecentRollouts.map(({ experiment, event }) => <button type="button" key={`${experiment.id}-${event.time}-${event.type}`} onClick={() => openDetailTab(experiment, "rollout")}><time>{event.time}</time><strong>{experiment.name}</strong><span>{event.type}：{event.from} 至 {event.to}</span><small>{event.operator} · {event.reason}</small></button>)}</div></section>
+    </section>;
+  }
+
   function renderLedger() {
     return (
       <section className="search-panel" data-page-id="list">
@@ -2945,6 +2980,14 @@ function App() {
   function renderMetricLibrary() {
     if (!activeAccount) return null;
     const metrics = demoState.metrics as any[];
+    const filteredMetrics = metrics.filter((metric) => {
+      const keyword = metricFilters.keyword.trim().toLowerCase();
+      const owner = metricFilters.owner.trim().toLowerCase();
+      return (!keyword || [metric.id, metric.name, metric.domain, metric.sourceRef, metric.owner].join(" ").toLowerCase().includes(keyword))
+        && (metricFilters.domain === "all" || metric.domain === metricFilters.domain)
+        && (metricFilters.status === "all" || metric.status === metricFilters.status)
+        && (!owner || String(metric.owner).toLowerCase().includes(owner));
+    });
     const openMetricEditor = (metric: any, mode: "view" | "edit" | "new") => { setMetricDraft(metric); setMetricEditorMode(mode); navigateToTab("metricEditor"); };
     const metricReferenced = (metric: any) => ledgerExperiments.some((experiment) => experiment.coreMetric === metric.name || experiment.guardrailMetric.includes(metric.name) || experiment.createDraft?.basic.coreMetricId === metric.id || experiment.createDraft?.basic.guardrailMetricIds.includes(metric.id)) || createDraft.basic.coreMetricId === metric.id || createDraft.basic.guardrailMetricIds.includes(metric.id);
     const updateMetricStatus = (metric: any, status: "active" | "disabled") => {
@@ -2962,9 +3005,10 @@ function App() {
     return <section className="module-page metric-library" data-page-id="metrics" data-page-core="metric-library">
       <div className="page-heading">
         <div><h1>指标管理</h1><p>统一管理指标口径、来源、更新频率、负责人和启停状态。</p></div>
-        {can("metric.edit", { domain: ALL_DOMAINS[0] }) ? <button className="primary-button" type="button" onClick={() => openMetricEditor({ id: "", name: "", domain: activeAccount.domains[0] ?? "增长", definition: "", unit: "%", denominator: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [], editors: [activeAccount.id] }, "new")}><Plus size={16} /> 新增指标</button> : null}
+        {can("metric.edit", { domain: ALL_DOMAINS[0] }) ? <button className="primary-button" type="button" onClick={() => openMetricEditor({ id: "", name: "", domain: activeAccount.domains[0] ?? "增长", definition: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [], editors: [activeAccount.id] }, "new")}><Plus size={16} /> 新增指标</button> : null}
       </div>
-      <div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>指标</th><th>业务域</th><th>数据来源</th><th>更新频率</th><th>负责人</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{metrics.map((metric) => { const permitted = can("metric.view", metric) || can("metric.edit", metric); return <tr key={metric.id} data-metric-access={permitted ? "allowed" : "restricted"}><td><strong>{permitted ? metric.name : `受限指标 ${metric.id}`}</strong><span className="mono">{metric.id} · v{metric.version}</span></td><td>{metric.domain}</td><td>{permitted ? `${metric.sourceType === "table" ? "线上表" : "推送任务"} · ${metric.sourceRef}` : "受限"}</td><td>{metric.refreshFrequency}</td><td>{metric.owner}</td><td><span className={`quality-badge ${metric.status === "active" ? "passed" : "warning"}`}>{metric.status === "active" ? "启用" : "停用"}</span></td><td>{metric.updatedAt}</td><td><div className="row-actions">{!permitted ? <button type="button" onClick={() => openPermissionRequest("metric", metric)}>申请</button> : <><button type="button" onClick={() => openMetricEditor(metric, "view")}>查看</button>{can("metric.edit", metric) ? <button type="button" onClick={() => openMetricEditor(metric, "edit")}>编辑</button> : null}{can("metric.status", metric) ? <button type="button" onClick={() => updateMetricStatus(metric, metric.status === "active" ? "disabled" : "active")}>{metric.status === "active" ? "停用" : "启用"}</button> : null}{metric.status === "disabled" && can("metric.delete", metric) ? <button className="ledger-delete-action" type="button" onClick={() => deleteMetric(metric)}>删除</button> : null}</>}</div></td></tr>; })}</tbody></table></div>
+      <div className="ledger-filter-bar metric-filter-bar" data-metric-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索指标</span><input data-metric-filter="keyword" placeholder="指标 ID / 名称" value={metricFilters.keyword} onChange={(event) => setMetricFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">业务域</span><select data-metric-filter="domain" value={metricFilters.domain} onChange={(event) => setMetricFilters((current) => ({ ...current, domain: event.target.value }))}><option value="all">业务域</option>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-metric-filter="status" value={metricFilters.status} onChange={(event) => setMetricFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label><label className="field vertical ledger-owner-field"><span className="sr-only">负责人</span><input data-metric-filter="owner" placeholder="负责人" value={metricFilters.owner} onChange={(event) => setMetricFilters((current) => ({ ...current, owner: event.target.value }))} /></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setMetricFilters(defaultMetricFilters)}><RefreshCcw size={16} /> 重置</button></div></div>
+      <div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>指标</th><th>业务域</th><th>数据来源</th><th>更新频率</th><th>负责人</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredMetrics.map((metric) => { const permitted = can("metric.view", metric) || can("metric.edit", metric); return <tr key={metric.id} data-metric-access={permitted ? "allowed" : "restricted"}><td><strong>{permitted ? metric.name : `受限指标 ${metric.id}`}</strong><span className="mono">{metric.id} · v{metric.version}</span></td><td>{metric.domain}</td><td>{permitted ? `${metric.sourceType === "table" ? "线上表" : "推送任务"} · ${metric.sourceRef}` : "受限"}</td><td>{metric.refreshFrequency}</td><td>{metric.owner}</td><td><span className={`quality-badge ${metric.status === "active" ? "passed" : "warning"}`}>{metric.status === "active" ? "启用" : "停用"}</span></td><td>{metric.updatedAt}</td><td><div className="row-actions">{!permitted ? <button type="button" onClick={() => openPermissionRequest("metric", metric)}>申请</button> : <><button type="button" onClick={() => openMetricEditor(metric, "view")}>查看</button>{can("metric.edit", metric) ? <button type="button" onClick={() => openMetricEditor(metric, "edit")}>编辑</button> : null}{can("metric.status", metric) ? <button type="button" onClick={() => updateMetricStatus(metric, metric.status === "active" ? "disabled" : "active")}>{metric.status === "active" ? "停用" : "启用"}</button> : null}{metric.status === "disabled" && can("metric.delete", metric) ? <button className="ledger-delete-action" type="button" onClick={() => deleteMetric(metric)}>删除</button> : null}</>}</div></td></tr>; })}</tbody></table></div>
     </section>;
   }
 
@@ -2974,12 +3018,13 @@ function App() {
     const saveMetric = () => {
       if (!metricDraft.name?.trim() || !metricDraft.definition?.trim() || !metricDraft.sourceRef?.trim()) return showToast("请补齐指标名称、口径定义和数据来源");
       const updatedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
-      const next = { ...metricDraft, id: metricDraft.id || `MET-${String(Date.now()).slice(-5)}`, updatedAt, freshness: "新鲜", owner: metricDraft.owner || activeAccount.name, status: metricDraft.status || "active" };
+      const { unit: _unit, denominator: _denominator, ...metricFields } = metricDraft;
+      const next = { ...metricFields, id: metricDraft.id || `MET-${String(Date.now()).slice(-5)}`, updatedAt, freshness: "新鲜", owner: metricDraft.owner || activeAccount.name, status: metricDraft.status || "active" };
       const metrics = demoState.metrics as any[];
       persistDemoState({ ...demoState, metrics: metrics.some((metric) => metric.id === next.id) ? metrics.map((metric) => metric.id === next.id ? next : metric) : [next, ...metrics], audit: [{ id: `METRIC-${Date.now()}`, time: updatedAt, actor: activeAccount.name, action: `${metricDraft.id ? "更新" : "新增"}指标 ${next.name}` }, ...demoState.audit] });
       navigateToTab("metrics"); showToast("指标已保存");
     };
-    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回指标管理</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical"><span>单位</span><input disabled={!editable} value={metricDraft.unit} onChange={(event) => setMetricDraft({ ...metricDraft, unit: event.target.value })} /></label><label className="field vertical"><span>分母</span><input disabled={!editable} value={metricDraft.denominator} onChange={(event) => setMetricDraft({ ...metricDraft, denominator: event.target.value })} /></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div>}</Panel></section>;
+    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回指标管理</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div>}</Panel></section>;
   }
 
   function renderEvaluation() {
@@ -3906,6 +3951,11 @@ function App() {
   function renderRoles() {
     const roles = demoState.roles as any[];
     const accounts = demoState.accounts as any[];
+    const filteredRoles = roles.filter((role) => {
+      const keyword = roleFilters.keyword.trim().toLowerCase();
+      return (!keyword || [role.id, role.name, role.description, role.domains.join(" ")].join(" ").toLowerCase().includes(keyword))
+        && (roleFilters.status === "all" || role.status === roleFilters.status);
+    });
     const openRole = (role: any, mode: "view" | "edit" | "new") => { setSelectedPermissionRole(role.id); setRoleDraft(role); setRoleEditorMode(mode); };
     const saveRole = () => {
       if (!roleDraft?.name?.trim() || !roleDraft.domains?.length || !roleDraft.permissions?.length) return showToast("请填写角色名称、业务域和权限");
@@ -3915,20 +3965,27 @@ function App() {
     };
     const deleteRole = (role: any) => { if (accounts.some((account) => account.roleIds?.includes(role.id))) return showToast("已有人员分配该角色，无法删除"); if (!window.confirm(`确认删除角色“${role.name}”吗？`)) return; persistDemoState({ ...demoState, roles: roles.filter((item) => item.id !== role.id) }); };
     const setRoleStatus = (role: any) => persistDemoState({ ...demoState, roles: roles.map((item) => item.id === role.id ? { ...item, status: item.status === "active" ? "disabled" : "active", updatedAt: new Date().toISOString().slice(0, 16).replace("T", " ") } : item) });
-    if (roleEditorMode && roleDraft) return <section className="module-page"><div className="page-heading"><div><button className="back-button" onClick={() => setRoleEditorMode(null)}>返回角色管理</button><h1>{roleEditorMode === "new" ? "新增角色" : roleEditorMode === "edit" ? "编辑角色" : "查看角色"}</h1></div></div><Panel title="角色配置"><div className="form-grid"><label className="field vertical"><span>角色名称</span><input disabled={roleEditorMode === "view"} value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} /></label><label className="field vertical wide-field"><span>角色说明</span><input disabled={roleEditorMode === "view"} value={roleDraft.description} onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })} /></label></div><div className="permission-matrix"><section><h3>业务域范围</h3>{ALL_DOMAINS.map((domain) => <label key={domain}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.domains.includes(domain)} onChange={() => setRoleDraft({ ...roleDraft, domains: roleDraft.domains.includes(domain) ? roleDraft.domains.filter((item: string) => item !== domain) : [...roleDraft.domains, domain] })} />{domain}</label>)}</section><section><h3>功能权限</h3>{["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "import.submit", "monitor.view"].map((permission) => <label key={permission}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.permissions.includes(permission)} onChange={() => setRoleDraft({ ...roleDraft, permissions: roleDraft.permissions.includes(permission) ? roleDraft.permissions.filter((item: string) => item !== permission) : [...roleDraft.permissions, permission] })} />{permission}</label>)}</section></div>{roleEditorMode !== "view" ? <div className="drawer-actions"><button className="ghost-button" onClick={() => setRoleEditorMode(null)}>取消</button><button className="primary-button" onClick={saveRole}>保存</button></div> : null}</Panel></section>;
-    return <section className="module-page" data-page-id="roles"><div className="page-heading"><div><h1>角色管理</h1><p>配置使用者角色的业务域范围和功能权限。</p></div><button className="primary-button" onClick={() => openRole({ id: "", name: "", description: "", domains: ["增长"], permissions: ["experiment.view"], status: "active" }, "new")}><Plus size={16} />新增角色</button></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>角色</th><th>说明</th><th>业务域范围</th><th>授权动作</th><th>已分配人员</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{roles.map((role) => <tr key={role.id}><td><strong>{role.name}</strong><span className="mono">{role.id}</span></td><td>{role.description}</td><td>{role.domains.join("、")}</td><td>{role.permissions.length} 项</td><td>{accounts.filter((account) => account.roleIds?.includes(role.id)).length}</td><td>{role.status === "active" ? "启用" : "停用"}</td><td>{role.updatedAt}</td><td><div className="row-actions"><button onClick={() => openRole(role, "view")}>查看</button><button onClick={() => openRole(role, "edit")}>编辑</button><button onClick={() => setRoleStatus(role)}>{role.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deleteRole(role)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
+    if (roleEditorMode && roleDraft) return <section className="module-page admin-editor-page" data-page-id="roleEditor"><div className="page-heading"><div><button className="back-button" onClick={() => setRoleEditorMode(null)}>返回角色管理</button><h1>{roleEditorMode === "new" ? "新增角色" : roleEditorMode === "edit" ? "编辑角色" : "查看角色"}</h1><p>配置角色的业务域范围和可执行操作。</p></div></div><Panel title="角色配置"><div className="form-grid"><label className="field vertical"><span>角色名称</span><input disabled={roleEditorMode === "view"} value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} /></label><label className="field vertical wide-field"><span>角色说明</span><input disabled={roleEditorMode === "view"} value={roleDraft.description} onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })} /></label></div><div className="permission-matrix"><section><h3>业务域范围</h3><div className="compact-choice-grid">{ALL_DOMAINS.map((domain) => <label className="compact-choice" key={domain}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.domains.includes(domain)} onChange={() => setRoleDraft({ ...roleDraft, domains: roleDraft.domains.includes(domain) ? roleDraft.domains.filter((item: string) => item !== domain) : [...roleDraft.domains, domain] })} />{domain}</label>)}</div></section><section><h3>功能权限</h3><div className="compact-choice-grid permission-choice-grid">{["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "import.submit", "monitor.view"].map((permission) => <label className="compact-choice" key={permission}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.permissions.includes(permission)} onChange={() => setRoleDraft({ ...roleDraft, permissions: roleDraft.permissions.includes(permission) ? roleDraft.permissions.filter((item: string) => item !== permission) : [...roleDraft.permissions, permission] })} />{permission}</label>)}</div></section></div>{roleEditorMode !== "view" ? <div className="drawer-actions admin-editor-actions"><button className="ghost-button" onClick={() => setRoleEditorMode(null)}>取消</button><button className="primary-button" onClick={saveRole}>保存</button></div> : null}</Panel></section>;
+    return <section className="module-page" data-page-id="roles"><div className="page-heading"><div><h1>角色管理</h1><p>配置使用者角色的业务域范围和功能权限。</p></div><button className="primary-button" onClick={() => openRole({ id: "", name: "", description: "", domains: ["增长"], permissions: ["experiment.view"], status: "active" }, "new")}><Plus size={16} />新增角色</button></div><div className="ledger-filter-bar" data-role-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索角色</span><input data-role-filter="keyword" placeholder="角色名称 / 说明" value={roleFilters.keyword} onChange={(event) => setRoleFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-role-filter="status" value={roleFilters.status} onChange={(event) => setRoleFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setRoleFilters(defaultRoleFilters)}><RefreshCcw size={16} /> 重置</button></div></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>角色</th><th>说明</th><th>业务域范围</th><th>授权动作</th><th>已分配人员</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredRoles.map((role) => <tr key={role.id}><td><strong>{role.name}</strong><span className="mono">{role.id}</span></td><td>{role.description}</td><td>{role.domains.join("、")}</td><td>{role.permissions.length} 项</td><td>{accounts.filter((account) => account.roleIds?.includes(role.id)).length}</td><td>{role.status === "active" ? "启用" : "停用"}</td><td>{role.updatedAt}</td><td><div className="row-actions"><button onClick={() => openRole(role, "view")}>查看</button><button onClick={() => openRole(role, "edit")}>编辑</button><button onClick={() => setRoleStatus(role)}>{role.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deleteRole(role)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
   }
 
   function renderPeople() {
     const accounts = demoState.accounts as any[];
     const roles = demoState.roles as any[];
+    const filteredPeople = accounts.filter((person) => {
+      const keyword = personFilters.keyword.trim().toLowerCase();
+      return (!keyword || [person.id, person.name, ...(person.roleIds ?? [])].join(" ").toLowerCase().includes(keyword))
+        && (personFilters.role === "all" || person.role === personFilters.role)
+        && (personFilters.roleId === "all" || person.roleIds?.includes(personFilters.roleId))
+        && (personFilters.status === "all" || person.status === personFilters.status);
+    });
     const openPerson = (person: any, mode: "view" | "edit" | "new") => { setSelectedPersonId(person.id); setPersonDraft(person); setPersonEditorMode(mode); };
     const enabledAdmins = accounts.filter((account) => account.role === "admin" && account.status === "active");
     const savePerson = () => { if (!personDraft?.id?.trim() || !personDraft?.name?.trim()) return showToast("请填写登录名和姓名"); if (personDraft.role === "user" && !personDraft.roleIds?.length) return showToast("使用者至少需要一个角色"); const now = new Date().toISOString().slice(0, 16).replace("T", " "); const person = { ...personDraft, roleIds: personDraft.role === "admin" ? [] : personDraft.roleIds, status: personDraft.status ?? "active", domains: personDraft.domains ?? [], ownedExperimentIds: personDraft.ownedExperimentIds ?? [], updatedAt: now }; persistDemoState({ ...demoState, accounts: accounts.some((item) => item.id === person.id) ? accounts.map((item) => item.id === person.id ? person : item) : [...accounts, person], audit: [{ id: `PERSON-${Date.now()}`, time: now, actor: activeAccount?.name ?? "管理员", action: `${personDraft.updatedAt ? "更新" : "新增"}人员 ${person.name}` }, ...demoState.audit] }); setPersonEditorMode(null); showToast("人员已保存"); };
     const disablePerson = (person: any) => { if (person.role === "admin" && person.status === "active" && enabledAdmins.length <= 1) return showToast("至少保留一个启用管理员"); if (person.id === activeAccount?.id) return showToast("不能停用当前登录账号"); persistDemoState({ ...demoState, accounts: accounts.map((item) => item.id === person.id ? { ...item, status: item.status === "active" ? "disabled" : "active" } : item) }); };
     const deletePerson = (person: any) => { if (person.id === activeAccount?.id) return showToast("不能删除当前登录账号"); if (person.role === "admin" && person.status === "active" && enabledAdmins.length <= 1) return showToast("至少保留一个启用管理员"); if (!window.confirm(`确认删除人员“${person.name}”吗？`)) return; persistDemoState({ ...demoState, accounts: accounts.filter((item) => item.id !== person.id) }); };
-    if (personEditorMode && personDraft) return <section className="module-page"><div className="page-heading"><div><button className="back-button" onClick={() => setPersonEditorMode(null)}>返回人员管理</button><h1>{personEditorMode === "new" ? "新增人员" : personEditorMode === "edit" ? "编辑人员" : "查看人员"}</h1></div></div><Panel title="人员配置"><div className="form-grid"><label className="field vertical"><span>登录名</span><input disabled={personEditorMode === "view" || Boolean(personDraft.updatedAt)} value={personDraft.id} onChange={(event) => setPersonDraft({ ...personDraft, id: event.target.value })} /></label><label className="field vertical"><span>姓名</span><input disabled={personEditorMode === "view"} value={personDraft.name} onChange={(event) => setPersonDraft({ ...personDraft, name: event.target.value })} /></label><label className="field vertical"><span>用户类型</span><select disabled={personEditorMode === "view"} value={personDraft.role} onChange={(event) => setPersonDraft({ ...personDraft, role: event.target.value, roleIds: event.target.value === "admin" ? [] : personDraft.roleIds })}><option value="user">使用者</option><option value="admin">管理员</option></select></label></div>{personDraft.role === "user" ? <div className="permission-matrix"><section><h3>分配角色</h3>{roles.map((role) => <label key={role.id}><input disabled={personEditorMode === "view"} type="checkbox" checked={personDraft.roleIds.includes(role.id)} onChange={() => setPersonDraft({ ...personDraft, roleIds: personDraft.roleIds.includes(role.id) ? personDraft.roleIds.filter((id: string) => id !== role.id) : [...personDraft.roleIds, role.id] })} />{role.name}</label>)}</section></div> : <p className="hint">管理员拥有全量权限，无需配置角色。</p>}{personEditorMode !== "view" ? <div className="drawer-actions"><button className="ghost-button" onClick={() => setPersonEditorMode(null)}>取消</button><button className="primary-button" onClick={savePerson}>保存</button></div> : null}</Panel></section>;
-    return <section className="module-page" data-page-id="people"><div className="page-heading"><div><h1>人员管理</h1><p>维护测试账号、用户类型和角色分配。</p></div><button className="primary-button" onClick={() => openPerson({ id: "", name: "", role: "user", roleIds: ["role-viewer"], domains: [], ownedExperimentIds: [], status: "active" }, "new")}><Plus size={16} />新增人员</button></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>登录名</th><th>姓名</th><th>用户类型</th><th>已分配角色</th><th>业务域</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{accounts.map((person) => <tr key={person.id}><td className="mono">{person.id}</td><td>{person.name}</td><td>{person.role === "admin" ? "管理员" : "使用者"}</td><td>{person.role === "admin" ? "系统全量权限" : person.roleIds.map((id: string) => roles.find((role) => role.id === id)?.name ?? id).join("、")}</td><td>{person.domains?.join("、") || "由角色决定"}</td><td>{person.status === "active" ? "启用" : "停用"}</td><td>{person.updatedAt}</td><td><div className="row-actions"><button onClick={() => openPerson(person, "view")}>查看</button><button onClick={() => openPerson(person, "edit")}>编辑</button><button onClick={() => disablePerson(person)}>{person.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deletePerson(person)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
+    if (personEditorMode && personDraft) return <section className="module-page admin-editor-page" data-page-id="personEditor"><div className="page-heading"><div><button className="back-button" onClick={() => setPersonEditorMode(null)}>返回人员管理</button><h1>{personEditorMode === "new" ? "新增人员" : personEditorMode === "edit" ? "编辑人员" : "查看人员"}</h1><p>维护测试账号、用户类型和角色分配。</p></div></div><Panel title="人员配置"><div className="form-grid"><label className="field vertical"><span>登录名</span><input disabled={personEditorMode === "view" || Boolean(personDraft.updatedAt)} value={personDraft.id} onChange={(event) => setPersonDraft({ ...personDraft, id: event.target.value })} /></label><label className="field vertical"><span>姓名</span><input disabled={personEditorMode === "view"} value={personDraft.name} onChange={(event) => setPersonDraft({ ...personDraft, name: event.target.value })} /></label><label className="field vertical"><span>用户类型</span><select disabled={personEditorMode === "view"} value={personDraft.role} onChange={(event) => setPersonDraft({ ...personDraft, role: event.target.value, roleIds: event.target.value === "admin" ? [] : personDraft.roleIds })}><option value="user">使用者</option><option value="admin">管理员</option></select></label></div>{personDraft.role === "user" ? <div className="permission-matrix person-role-matrix"><section><h3>分配角色</h3><div className="compact-choice-grid">{roles.map((role) => <label className="compact-choice" key={role.id}><input disabled={personEditorMode === "view"} type="checkbox" checked={personDraft.roleIds.includes(role.id)} onChange={() => setPersonDraft({ ...personDraft, roleIds: personDraft.roleIds.includes(role.id) ? personDraft.roleIds.filter((id: string) => id !== role.id) : [...personDraft.roleIds, role.id] })} />{role.name}</label>)}</div></section></div> : <p className="hint">管理员拥有全量权限，无需配置角色。</p>}{personEditorMode !== "view" ? <div className="drawer-actions admin-editor-actions"><button className="ghost-button" onClick={() => setPersonEditorMode(null)}>取消</button><button className="primary-button" onClick={savePerson}>保存</button></div> : null}</Panel></section>;
+    return <section className="module-page" data-page-id="people"><div className="page-heading"><div><h1>人员管理</h1><p>维护测试账号、用户类型和角色分配。</p></div><button className="primary-button" onClick={() => openPerson({ id: "", name: "", role: "user", roleIds: ["role-viewer"], domains: [], ownedExperimentIds: [], status: "active" }, "new")}><Plus size={16} />新增人员</button></div><div className="ledger-filter-bar" data-person-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索人员</span><input data-person-filter="keyword" placeholder="登录名 / 姓名" value={personFilters.keyword} onChange={(event) => setPersonFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">用户类型</span><select data-person-filter="role" value={personFilters.role} onChange={(event) => setPersonFilters((current) => ({ ...current, role: event.target.value }))}><option value="all">用户类型</option><option value="admin">管理员</option><option value="user">使用者</option></select></label><label className="field vertical ledger-select-field"><span className="sr-only">角色</span><select data-person-filter="roleId" value={personFilters.roleId} onChange={(event) => setPersonFilters((current) => ({ ...current, roleId: event.target.value }))}><option value="all">已分配角色</option>{roles.map((role) => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-person-filter="status" value={personFilters.status} onChange={(event) => setPersonFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setPersonFilters(defaultPersonFilters)}><RefreshCcw size={16} /> 重置</button></div></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>登录名</th><th>姓名</th><th>用户类型</th><th>已分配角色</th><th>业务域</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredPeople.map((person) => <tr key={person.id}><td className="mono">{person.id}</td><td>{person.name}</td><td>{person.role === "admin" ? "管理员" : "使用者"}</td><td>{person.role === "admin" ? "系统全量权限" : person.roleIds.map((id: string) => roles.find((role) => role.id === id)?.name ?? id).join("、")}</td><td>{person.domains?.join("、") || "由角色决定"}</td><td>{person.status === "active" ? "启用" : "停用"}</td><td>{person.updatedAt}</td><td><div className="row-actions"><button onClick={() => openPerson(person, "view")}>查看</button><button onClick={() => openPerson(person, "edit")}>编辑</button><button onClick={() => disablePerson(person)}>{person.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deletePerson(person)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
   }
 
   function renderSampleTool() {

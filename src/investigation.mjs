@@ -9,6 +9,7 @@ export const allowedTransitions = Object.freeze({
 });
 
 const tabs = new Set([
+  "home",
   "create",
   "list",
   "metrics",
@@ -27,7 +28,7 @@ function isSafeIdentifier(value) {
 }
 
 function fallbackLocation() {
-  return { tab: "list", context: null };
+  return { tab: "home", context: null };
 }
 
 function decodeQuery(query) {
@@ -102,7 +103,7 @@ export function parseInvestigationLocation(hash) {
   const query = separator === -1 ? "" : fragment.slice(separator + 1);
 
   if (tab === "permission") tab = "roles";
-  if (tab === "governance") tab = "list";
+  if (tab === "governance") tab = "home";
 
   if (!tabs.has(tab)) return fallbackLocation();
 
@@ -149,7 +150,7 @@ function isInvalidInvestigationHash(hash, parsed) {
   let tab = separator === -1 ? fragment : fragment.slice(0, separator);
   const query = separator === -1 ? "" : fragment.slice(separator + 1);
   if (tab === "permission") tab = "roles";
-  if (tab === "governance") tab = "list";
+  if (tab === "governance") tab = "home";
   if (!tab || !tabs.has(tab)) return true;
 
   const params = decodeQuery(query);
@@ -183,7 +184,7 @@ export function recoverInvestigationLocation(hash, storage) {
   const invalidHash = isInvalidInvestigationHash(hash, parsed);
 
   if (invalidHash) {
-    return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };
+    return { tab: "home", context: stored, invalidHash: true, shouldPersist: false };
   }
 
   if (!parsed.context) {
@@ -207,7 +208,7 @@ export function recoverInvestigationLocation(hash, storage) {
 }
 
 export function buildInvestigationHash(tab, context = null) {
-  const safeTab = tabs.has(tab) ? tab : "list";
+  const safeTab = tabs.has(tab) ? tab : "home";
   if (!context || !isSafeIdentifier(context.experimentId)) return `#${safeTab}`;
 
   const params = new URLSearchParams({ experiment: context.experimentId });

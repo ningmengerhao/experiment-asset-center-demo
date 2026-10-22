@@ -17,6 +17,7 @@ const screenshotTargets = {
   mobile: path.join(projectRoot, "dist", "ui-check-investigation-mobile.png"),
 };
 const userTabs = [
+  ["home", "首页", "home-dashboard"],
   ["metrics", "指标管理", "metric-library"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
@@ -442,32 +443,18 @@ async function run() {
     await openUrl(distUrl);
     await waitFor("demo account selector", () => evaluate(`Boolean(document.querySelector(".demo-account-grid"))`));
     await physicalClick(".demo-account-grid button:first-child");
-    await waitFor("demo admin login", () => evaluate(`Boolean(document.querySelector('[data-page-id="list"]'))`));
-    await expectPageContract("list", "实验清单", "experiment-ledger");
-    assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "实验管理", "List route must render as the experiment management navigation item.");
-    pass("empty URL opens the experiment ledger home");
+    await waitFor("demo admin login", () => evaluate(`Boolean(document.querySelector('[data-page-id="home"]'))`));
+    await expectPageContract("home", "首页", "home-dashboard");
+    assert.equal(await evaluate(`document.querySelector('[data-nav-id="home"]')?.textContent.trim()`), "首页", "Empty route must render as the dashboard navigation item.");
+    pass("empty URL opens the dashboard home");
 
     await openUrl(`${distUrl}#list`);
     await seedInvestigationContext();
     await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d`);
     await expectPageContract("investigate", "监控排查", "alert-queue");
-    assert.deepEqual(await evaluate(`(() => {
-      const context = document.querySelector("[data-investigation-experiment]");
-      return context ? {
-        experiment: context.dataset.investigationExperiment,
-        alert: context.dataset.investigationAlert,
-        range: context.dataset.investigationRange,
-        focus: context.dataset.investigationFocus,
-        status: context.querySelector("[data-investigation-status]")?.dataset.investigationStatus,
-      } : null;
-    })()`), {
-      experiment: "EXP-240611-017",
-      alert: "ALT-003",
-      range: "14d",
-      focus: "overview",
-      status: "investigating",
-    }, "Deep-link investigation context mismatch.");
-    pass("deep link restores the current investigation and URL overrides");
+    assert.equal(await evaluate(`location.hash`), "#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview", "Deep-link investigation URL mismatch.");
+    assert.equal(await evaluate(`!document.querySelector("[data-investigation-experiment]")`), true, "The global investigation context bar must remain hidden.");
+    pass("deep link preserves the current investigation without a global context bar");
 
     await physicalClick(`.current-investigation-actions [data-evidence-focus="relationship"]`);
     await waitFor("relationship detail tab", () => evaluate(`document.querySelector('[data-page-id="detail"]')?.dataset.detailExperiment === "EXP-240611-017" && document.querySelector('[data-detail-tab="lineage"]')?.getAttribute("aria-selected") === "true"`));
@@ -489,9 +476,9 @@ async function run() {
 
     await evaluate(`sessionStorage.clear(); localStorage.removeItem("experiment-asset-created-records-v1"); localStorage.removeItem("experiment-asset-create-draft-v1")`);
     await openUrl(`${distUrl}#invalid-route`);
-    await waitFor("invalid route normalization", () => evaluate(`location.hash === "#list"`));
-    await expectPageContract("list", "实验清单", "experiment-ledger");
-    pass("invalid route normalizes to #list");
+    await waitFor("invalid route normalization", () => evaluate(`location.hash === "#home"`));
+    await expectPageContract("home", "首页", "home-dashboard");
+    pass("invalid route normalizes to #home");
 
     await physicalClick("[data-open-create-experiment]");
     await waitFor("new experiment method dialog", () => evaluate(`document.querySelector("[data-create-experiment-dialog]")?.getAttribute("aria-modal") === "true"`));
@@ -610,12 +597,12 @@ async function run() {
     await physicalClick("[data-open-create-experiment]");
     await waitFor("new experiment import option", () => evaluate(`Boolean(document.querySelector("[data-create-experiment-dialog]"))`));
     await physicalClick('[data-create-method="import"]');
-    await waitFor("upload import reuses import drawer", () => evaluate(`document.querySelector(".import-drawer")?.getAttribute("aria-modal") === "true"`));
-    assert.equal(await evaluate(`Boolean(document.querySelector('.import-drawer input[type="file"][accept*=".xlsx"]')) && [...document.querySelectorAll('.import-drawer button')].some((button) => button.textContent.includes("模板下载"))`), true, "Import drawer must provide an xlsx file selector and template download.");
+    await waitFor("upload import opens a centered dialog", () => evaluate(`document.querySelector("[data-import-dialog]")?.getAttribute("aria-modal") === "true"`));
+    assert.equal(await evaluate(`Boolean(document.querySelector('[data-import-dialog] input[type="file"][accept*=".xlsx"]')) && Boolean(document.querySelector('[data-import-dialog] .import-template-tile')) && Boolean(document.querySelector('[data-import-dialog] .import-upload-zone'))`), true, "Import dialog must provide an xlsx file selector, template tile, and upload zone.");
     await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
-    await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
-    pass("new experiment can route to the existing upload import flow");
+    await waitFor("import dialog closes", () => evaluate(`!document.querySelector("[data-import-dialog]")`));
+    pass("new experiment can route to the centered upload import flow");
 
     await evaluate(`(() => { const state = JSON.parse(localStorage.getItem("experiment-asset-demo-access-v1")); state.sessionAccountId = "viewer.sun"; localStorage.setItem("experiment-asset-demo-access-v1", JSON.stringify(state)); })()`);
     await openUrl(`${distUrl}#list`);
@@ -655,8 +642,8 @@ async function run() {
 
     for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout", "#access", "#myImports", "#importReview", "#governance"]) {
       await openUrl(`${distUrl}${legacyHash}`);
-      await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#list"`));
-      await expectPageContract("list", "实验清单", "experiment-ledger");
+      await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#home"`));
+      await expectPageContract("home", "首页", "home-dashboard");
     }
     await openUrl(`${distUrl}#permission`);
     await waitFor("permission route compatibility", () => evaluate(`location.hash === "#roles"`));
@@ -705,7 +692,7 @@ async function run() {
 
       await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview`);
       await expectPageContract("investigate", "监控排查", "alert-queue");
-      await waitFor("monitor screenshot investigation context", () => evaluate(`document.querySelector("[data-investigation-experiment]")?.dataset.investigationExperiment === "EXP-240611-017"`));
+      await waitFor("monitor screenshot investigation context", () => evaluate(`location.hash.startsWith("#investigate?experiment=EXP-240611-017")`));
       await captureScreenshot("monitor");
 
       await physicalClick(`.current-investigation-actions [data-evidence-focus="relationship"]`);
