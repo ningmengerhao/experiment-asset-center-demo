@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ClipboardList,
-  Clock3,
   Database,
   Dices,
   Download,
@@ -17,7 +16,6 @@ import {
   ListChecks,
   LayoutDashboard,
   Moon,
-  Network,
   PlayCircle,
   Plus,
   Radar,
@@ -90,6 +88,7 @@ type Tab =
   | "importReview"
   | "governance"
   | "permission";
+type DetailTab = "basic" | "lineage" | "rollout" | "validation";
 type RoleView = "user" | "admin";
 type ExperimentStatus = "draft" | "pending" | "running" | "paused" | "ended";
 type QualityStatus = "passed" | "warning" | "critical";
@@ -523,8 +522,6 @@ const navGroups: Array<{
     role: "all",
     items: [
       { key: "list", label: "实验管理", icon: ClipboardList },
-      { key: "lineage", label: "父子实验", icon: Network },
-      { key: "rollout", label: "放量历史", icon: Clock3 },
       { key: "myImports", label: "批量导入记录", icon: Upload },
     ],
   },
@@ -1116,6 +1113,7 @@ function App() {
     return buildEvidenceTimeline(enrichDirectInvestigationOwner(recovered.context));
   });
   const [selected, setSelected] = useState<ExperimentRecord | null>(null);
+  const [detailTab, setDetailTab] = useState<DetailTab>("basic");
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchKeyword, setGlobalSearchKeyword] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1267,13 +1265,7 @@ function App() {
         type: "放量事件",
         title: `${item.name} · ${event.type}`,
         meta: `${event.time} · ${event.from} -> ${event.to} · ${event.operator}`,
-        action: () => {
-          if (investigationContext?.caseId && investigationContext.experimentId === item.id) {
-            navigateWithInvestigation("rollout", "rollout");
-          } else {
-            openDetail(item);
-          }
-        },
+        action: () => openDetailTab(item, "rollout"),
       }));
     const relationResults = relationRecords
       .filter((record) => !keyword || [record.sourceExperimentId, record.targetExperimentId, record.type, record.reason, record.scope].join(" ").toLowerCase().includes(keyword))
@@ -1284,13 +1276,7 @@ function App() {
           type: "关系记录",
           title: `${record.sourceExperimentId} -> ${record.targetExperimentId}`,
           meta: `${record.type} · ${record.scope}`,
-          action: () => {
-            if (investigationContext?.caseId && (investigationContext.experimentId === record.sourceExperimentId || investigationContext.experimentId === record.targetExperimentId)) {
-              navigateWithInvestigation("lineage", "relationship");
-            } else {
-              openDetail(relationExperiment ?? null);
-            }
-          },
+          action: () => openDetailTab(relationExperiment ?? null, "lineage"),
         };
       });
     const sourceResults = Array.from(new Set(experiments.map((item) => item.sourcePlatform)))
@@ -1741,11 +1727,10 @@ function App() {
     toastTimerRef.current = window.setTimeout(() => setToast(null), 2200);
   }
 
-  function openDrawer(drawer: DrawerName, experiment?: ExperimentRecord | null) {
+  function openDrawer(drawer: DrawerName) {
     if (!hasOpenDrawer && typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
       previousFocusRef.current = document.activeElement;
     }
-    if (drawer === "detail" && experiment) setSelected(experiment);
     if (drawer === "help") setHelpDrawer(true);
     if (drawer === "import") setBulkImportOpen(true);
     if (drawer === "filters") setFilterDialogOpen(true);
@@ -1754,6 +1739,10 @@ function App() {
   }
 
   function openDetail(experiment: ExperimentRecord | null) {
+    openDetailTab(experiment, "basic");
+  }
+
+  function openDetailTab(experiment: ExperimentRecord | null, nextDetailTab: DetailTab) {
     if (!experiment) return;
     if (!can("experiment.view", experiment)) {
       setAccessRequestDraft({ ...accessRequestDraft, scope: "experiment", resourceId: experiment.id, permission: "experiment.view" });
@@ -1761,13 +1750,18 @@ function App() {
       showToast("没有实验详情权限，可提交申请");
       return;
     }
-    openDrawer("detail", experiment);
+    setSelected(experiment);
+    setDetailTab(nextDetailTab);
+  }
+
+  function closeDetail() {
+    setSelected(null);
+    setDetailTab("basic");
   }
 
   function closeTopmostDrawer() {
     const result = popDrawer(drawerStack);
     if (!result.closed) return;
-    if (result.closed === "detail") setSelected(null);
     if (result.closed === "help") setHelpDrawer(false);
     if (result.closed === "import") setBulkImportOpen(false);
     if (result.closed === "filters") setFilterDialogOpen(false);
@@ -1870,12 +1864,12 @@ function App() {
     showToast("已建立本地排查上下文（演示状态，未写入生产系统）");
   }
 
-  function focusExperimentInvestigation(experimentId: string, tab: Tab, focus: EvidenceFocus, entrySource: InvestigationContext["entrySource"]) {
+  function focusExperimentInvestigation(experimentId: string, focus: EvidenceFocus, entrySource: InvestigationContext["entrySource"]) {
     if (investigationContext?.caseId && investigationContext.experimentId === experimentId) {
-      navigateWithInvestigation(tab, focus);
+      navigateWithInvestigation("investigate", focus);
       return;
     }
-    startInvestigation(experimentId, { tab, focus, entrySource });
+    startInvestigation(experimentId, { tab: "investigate", focus, entrySource });
   }
 
   function updateInvestigationStatus(nextStatus: InvestigationStatus, note: string) {
@@ -2084,7 +2078,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell" data-active-page={activeTab}>
+    <div className="app-shell" data-active-page={selected ? "detail" : activeTab}>
       <aside className="sidebar" inert={hasOpenDrawer || undefined}>
         <div className="brand">
           <div className="brand-logo" aria-hidden="true">
@@ -2193,10 +2187,8 @@ function App() {
         </header>
 
         <main ref={mainRef} className="main" tabIndex={-1}>
-          <div className="breadcrumb-bar" data-breadcrumb-page={activeTab}>
-            <span>{roleView === "admin" && ["importReview", "governance", "permission"].includes(activeTab) ? "管理后台" : breadcrumbGroup}</span>
-            <span>/</span>
-            <strong>{breadcrumbLabel}</strong>
+          <div className="breadcrumb-bar" data-breadcrumb-page={selected ? "detail" : activeTab}>
+            {selected ? <><span>实验管理</span><span>/</span><span>实验清单</span><span>/</span><strong>{selected.name}</strong></> : <><span>{roleView === "admin" && ["importReview", "governance", "permission"].includes(activeTab) ? "管理后台" : breadcrumbGroup}</span><span>/</span><strong>{breadcrumbLabel}</strong></>}
           </div>
           {investigationContext?.caseId ? (
             <section
@@ -2232,251 +2224,23 @@ function App() {
               </div>
             </section>
           ) : null}
-          {activeTab === "create" && renderCreateFlow()}
-          {activeTab === "list" && renderLedger()}
-          {activeTab === "metrics" && renderMetricLibrary()}
-          {activeTab === "access" && renderAccessCenter()}
-          {activeTab === "investigate" && renderInvestigation()}
-          {activeTab === "lineage" && renderLineage()}
-          {activeTab === "rollout" && renderRollout()}
-          {activeTab === "myImports" && renderMyImports()}
-          {roleView === "admin" && activeTab === "importReview" && renderImportReview()}
-          {roleView === "admin" && activeTab === "governance" && renderGovernance()}
-          {roleView === "admin" && activeTab === "permission" && renderPermission()}
+          {selected ? renderExperimentDetail(selected) : <>
+            {activeTab === "create" && renderCreateFlow()}
+            {activeTab === "list" && renderLedger()}
+            {activeTab === "metrics" && renderMetricLibrary()}
+            {activeTab === "access" && renderAccessCenter()}
+            {activeTab === "investigate" && renderInvestigation()}
+            {activeTab === "myImports" && renderMyImports()}
+            {roleView === "admin" && activeTab === "importReview" && renderImportReview()}
+            {roleView === "admin" && activeTab === "governance" && renderGovernance()}
+            {roleView === "admin" && activeTab === "permission" && renderPermission()}
+          </>}
         </main>
       </div>
 
       {toast ? (
         <div className="toast" role="status" aria-live="polite">
           {toast}
-        </div>
-      ) : null}
-
-      {selected && activeDrawer === "detail" ? (
-        <div className="drawer-mask show" onClick={closeTopmostDrawer}>
-          <aside ref={drawerRef} className="drawer detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-drawer-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
-            <div className="drawer-header">
-              <div>
-                <span>{selected.id}</span>
-                <h2 id="detail-drawer-title">{selected.name}</h2>
-              </div>
-              <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭实验详情" onClick={closeTopmostDrawer}>
-                <X size={18} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="drawer-summary">
-              <div>
-                <span>当前放量</span>
-                <strong>{selected.rollout}%</strong>
-              </div>
-              <div>
-                <span>父子关系</span>
-                <strong>{selected.relationship}</strong>
-              </div>
-              <div>
-                <span>质量状态</span>
-                <strong>{qualityText[selected.quality]}</strong>
-              </div>
-              <div>
-                <span>实验状态</span>
-                <strong>{statusText[selected.status]}</strong>
-              </div>
-              <div>
-                <span>最近校验</span>
-                <strong>{selected.checkSnapshot.preAA.split(" ")[1] ?? "通过"}</strong>
-              </div>
-            </div>
-            <div className="drawer-investigation-actions">
-              <button
-                type="button"
-                className="primary-button"
-                data-start-investigation={selected.id}
-                onClick={() => {
-                  closeTopmostDrawer();
-                  if (investigationContext?.caseId && investigationContext.experimentId === selected.id) {
-                    navigateWithInvestigation("investigate", "overview");
-                  } else {
-                    startInvestigation(selected.id, { entrySource: "detail", focus: "overview" });
-                  }
-                }}
-              >
-                {investigationContext?.caseId && investigationContext.experimentId === selected.id ? "继续排查" : "开始排查"}
-              </button>
-              <button type="button" className="ghost-button" onClick={() => {
-                closeTopmostDrawer();
-                if (investigationContext?.caseId && investigationContext.experimentId === selected.id) navigateWithInvestigation("lineage", "relationship");
-                else startInvestigation(selected.id, { tab: "lineage", entrySource: "detail", focus: "relationship" });
-              }}>关系证据</button>
-              <button type="button" className="ghost-button" onClick={() => {
-                closeTopmostDrawer();
-                if (investigationContext?.caseId && investigationContext.experimentId === selected.id) navigateWithInvestigation("rollout", "rollout");
-                else startInvestigation(selected.id, { tab: "rollout", entrySource: "detail", focus: "rollout" });
-              }}>放量证据</button>
-              <button type="button" className="ghost-button" onClick={() => showToast("当前详情已展示最近校验快照")}>校验快照</button>
-            </div>
-            <section className="drawer-section">
-              <h3>基础信息</h3>
-              <dl>
-                <div>
-                  <dt>来源平台</dt>
-                  <dd>{selected.sourcePlatform}</dd>
-                </div>
-                <div>
-                  <dt>负责人</dt>
-                  <dd>{selected.owner}</dd>
-                </div>
-                <div>
-                  <dt>核心指标</dt>
-                  <dd>{selected.coreMetric}</dd>
-                </div>
-                <div>
-                  <dt>护栏指标</dt>
-                  <dd>{selected.guardrailMetric}</dd>
-                </div>
-                <div>
-                  <dt>流量层</dt>
-                  <dd>{selected.trafficLayer}</dd>
-                </div>
-                <div>
-                  <dt>目标人群</dt>
-                  <dd>{selected.userGroup}</dd>
-                </div>
-                <div>
-                  <dt>样本口径</dt>
-                  <dd>{selected.sampleDefinition.domain} · {selected.sampleDefinition.source} · {selected.sampleDefinition.unit}</dd>
-                </div>
-                <div>
-                  <dt>实验状态</dt>
-                  <dd>{statusText[selected.status]}</dd>
-                </div>
-              </dl>
-            </section>
-            {selected.createDraft ? <section className="drawer-section design-snapshot">
-              <h3>实验设计快照</h3>
-              <dl>
-                <div><dt>核心指标</dt><dd>{selected.coreMetric}</dd></div>
-                <div><dt>护栏指标</dt><dd>{selected.guardrailMetric}</dd></div>
-                <div><dt>样本来源</dt><dd>{selected.sampleDefinition.source}</dd></div>
-                <div><dt>历史时间</dt><dd>{selected.sampleDefinition.window}</dd></div>
-                <div><dt>来源类型</dt><dd>{selected.createDraft.basic.sampleRange.sourceKind === "task" ? "推送任务" : "SQL"}</dd></div>
-                <div><dt>过滤条件</dt><dd className="snapshot-rule">{selected.sampleDefinition.filterCondition || "未设置"}</dd></div>
-                <div><dt>样本规则</dt><dd className="snapshot-rule">{selected.createDraft.basic.sampleRange.sourceKind === "task" ? `${selected.createDraft.basic.sampleRange.taskId}${selected.sampleDefinition.filterCondition ? ` · ${selected.sampleDefinition.filterCondition}` : ""}` : selected.sampleDefinition.finalSql || appendFilterCondition(selected.createDraft.basic.sampleRange.sql, selected.createDraft.basic.sampleRange.filterCondition)}</dd></div>
-              </dl>
-            </section> : null}
-            <section className="drawer-section">
-              <h3>复盘结论</h3>
-              <div className="review-summary">
-                <strong>{selected.reviewSummary.conclusion}</strong>
-                <div className="checklist">
-                  {selected.reviewSummary.tags.map((tag) => (
-                    <span key={tag}>{tag}</span>
-                  ))}
-                </div>
-                <p>相似实验：{selected.reviewSummary.similarExperiments.join("、")}</p>
-                <p>下一步：{selected.reviewSummary.nextAction}</p>
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>关联关系</h3>
-              <div className="relation-list">
-                {relationRecords
-                  .filter((record) => record.sourceExperimentId === selected.id || record.targetExperimentId === selected.id)
-                  .map((record) => {
-                    const peerId = record.sourceExperimentId === selected.id ? record.targetExperimentId : record.sourceExperimentId;
-                    const peer = experiments.find((item) => item.id === peerId);
-                    return (
-                      <div className="relation-card" key={record.id}>
-                        <strong>{record.type}</strong>
-                        <span>{peer ? `${peer.id} · ${peer.name}` : peerId}</span>
-                        <p>{record.reason}</p>
-                      </div>
-                    );
-                  })}
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>实验分组含义</h3>
-              <div className="group-meaning">
-                <div>
-                  <strong>A 组 · 对照组</strong>
-                  <p>保留当前线上策略，不承载新策略，用于衡量自然波动和基准指标。</p>
-                </div>
-                <div>
-                  <strong>B 组 · 实验组</strong>
-                  <p>承载本实验的新策略或配置变化，与对照组在同一业务域样本内比较效果。</p>
-                </div>
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>最近校验结果</h3>
-              <div className="check-snapshot">
-                <span>{selected.checkSnapshot.sampleScope}</span>
-                <strong>{selected.checkSnapshot.preAA}</strong>
-                <strong>{selected.checkSnapshot.uniformity}</strong>
-                <strong>{selected.checkSnapshot.orthogonality}</strong>
-                <em>更新时间：{selected.checkSnapshot.updatedAt}</em>
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>放量历史</h3>
-              <div className="timeline">
-                {selected.rolloutEvents.map((event) => (
-                  <div className="timeline-item" key={`${selected.id}-${event.time}`}>
-                    <i />
-                    <div>
-                      <strong>
-                        {event.type}: {event.from} {"->"} {event.to}
-                      </strong>
-                      <span>
-                        {event.time} · {event.operator}
-                      </span>
-                      <p>{event.reason}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>统一证据时间线</h3>
-              <div className="detail-evidence-timeline">
-                {detailEvidence.map((event) => (
-                  <div className={`detail-evidence-item ${event.severity}`} key={`detail-${event.id}`}>
-                    <time>{event.occurredAt}</time>
-                    <div>
-                      <strong>{event.title}</strong>
-                      <p>{event.summary}</p>
-                      <span>{event.sourcePlatform} · {event.operator}</span>
-                    </div>
-                  </div>
-                ))}
-                {!detailEvidence.length ? <p className="timeline-empty">当前实验没有可用的统一证据事件。</p> : null}
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>来源与导入质量</h3>
-              <div className="quality-panel">
-                <strong>{selected.sourceQuality}</strong>
-                <span>来源平台：{selected.sourcePlatform}</span>
-                <span>导入批次：{selected.importBatchId}</span>
-              </div>
-            </section>
-            <section className="drawer-section">
-              <h3>变更审计</h3>
-              <div className="timeline audit-timeline">
-                {selected.auditEvents.map((event) => (
-                  <div className="timeline-item" key={`${selected.id}-${event.time}-${event.action}`}>
-                    <i />
-                    <div>
-                      <strong>{event.action}</strong>
-                      <span>
-                        {event.time} · {event.operator}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          </aside>
         </div>
       ) : null}
 
@@ -3227,6 +2991,105 @@ function App() {
     );
   }
 
+  function renderExperimentDetail(experiment: ExperimentRecord) {
+    const tabs: Array<{ id: DetailTab; label: string }> = [
+      { id: "basic", label: "基础信息" },
+      { id: "lineage", label: "父子实验" },
+      { id: "rollout", label: "放量历史" },
+      { id: "validation", label: "校验快照" },
+    ];
+    const activeIndex = tabs.findIndex((item) => item.id === detailTab);
+    const selectAdjacentTab = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+      let nextIndex = activeIndex;
+      if (event.key === "ArrowRight") nextIndex = (activeIndex + 1) % tabs.length;
+      if (event.key === "ArrowLeft") nextIndex = (activeIndex - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") nextIndex = 0;
+      if (event.key === "End") nextIndex = tabs.length - 1;
+      if (nextIndex === activeIndex) return;
+      event.preventDefault();
+      setDetailTab(tabs[nextIndex].id);
+      window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-detail-tab="${tabs[nextIndex].id}"]`)?.focus());
+    };
+    const startDetailInvestigation = () => {
+      if (investigationContext?.caseId && investigationContext.experimentId === experiment.id) {
+        closeDetail();
+        navigateWithInvestigation("investigate", "overview");
+      } else {
+        closeDetail();
+        startInvestigation(experiment.id, { entrySource: "detail", focus: "overview" });
+      }
+    };
+
+    return (
+      <section className="module-page experiment-detail-page" data-page-id="detail" data-detail-experiment={experiment.id}>
+        <div className="detail-page-heading">
+          <button type="button" className="back-link" onClick={closeDetail}>返回实验清单</button>
+          <div>
+            <span className="mono">{experiment.id}</span>
+            <h1>{experiment.name}</h1>
+          </div>
+        </div>
+
+        <div className="detail-summary-grid" aria-label="实验摘要">
+          <div><span>当前放量</span><strong>{experiment.rollout}%</strong></div>
+          <div><span>父子关系</span><strong>{experiment.relationship}</strong></div>
+          <div><span>质量状态</span><strong>{qualityText[experiment.quality]}</strong></div>
+          <div><span>实验状态</span><strong>{statusText[experiment.status]}</strong></div>
+          <div><span>最近校验</span><strong>{experiment.checkSnapshot.preAA.split(" ")[1] ?? "通过"}</strong></div>
+        </div>
+
+        <div className="detail-tab-bar">
+          <div className="detail-tabs" role="tablist" aria-label="实验详情">
+            {tabs.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                id={`detail-tab-${item.id}`}
+                data-detail-tab={item.id}
+                aria-selected={detailTab === item.id}
+                aria-controls={`detail-panel-${item.id}`}
+                tabIndex={detailTab === item.id ? 0 : -1}
+                className={detailTab === item.id ? "active" : ""}
+                onClick={() => setDetailTab(item.id)}
+                onKeyDown={selectAdjacentTab}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" className="primary-button detail-investigation-button" data-start-investigation={experiment.id} onClick={startDetailInvestigation}>
+            {investigationContext?.caseId && investigationContext.experimentId === experiment.id ? "继续排查" : "开始排查"}
+          </button>
+        </div>
+
+        <div id={`detail-panel-${detailTab}`} className="detail-tab-panel" role="tabpanel" aria-labelledby={`detail-tab-${detailTab}`}>
+          {detailTab === "basic" ? <>
+            <section className="detail-section"><h2>基础信息</h2><dl className="detail-definition-list">
+              <div><dt>来源平台</dt><dd>{experiment.sourcePlatform}</dd></div><div><dt>负责人</dt><dd>{experiment.owner}</dd></div>
+              <div><dt>核心指标</dt><dd>{experiment.coreMetric}</dd></div><div><dt>护栏指标</dt><dd>{experiment.guardrailMetric}</dd></div>
+              <div><dt>流量层</dt><dd>{experiment.trafficLayer}</dd></div><div><dt>目标人群</dt><dd>{experiment.userGroup}</dd></div>
+              <div><dt>样本口径</dt><dd>{experiment.sampleDefinition.domain} · {experiment.sampleDefinition.source} · {experiment.sampleDefinition.unit}</dd></div><div><dt>实验状态</dt><dd>{statusText[experiment.status]}</dd></div>
+            </dl></section>
+            {experiment.createDraft ? <section className="detail-section"><h2>实验设计快照</h2><dl className="detail-definition-list">
+              <div><dt>样本来源</dt><dd>{experiment.sampleDefinition.source}</dd></div><div><dt>历史时间</dt><dd>{experiment.sampleDefinition.window}</dd></div>
+              <div><dt>来源类型</dt><dd>{experiment.createDraft.basic.sampleRange.sourceKind === "task" ? "推送任务" : "SQL"}</dd></div><div><dt>过滤条件</dt><dd className="snapshot-rule">{experiment.sampleDefinition.filterCondition || "未设置"}</dd></div>
+              <div className="detail-full-width"><dt>样本规则</dt><dd className="snapshot-rule">{experiment.createDraft.basic.sampleRange.sourceKind === "task" ? `${experiment.createDraft.basic.sampleRange.taskId}${experiment.sampleDefinition.filterCondition ? ` · ${experiment.sampleDefinition.filterCondition}` : ""}` : experiment.sampleDefinition.finalSql || appendFilterCondition(experiment.createDraft.basic.sampleRange.sql, experiment.createDraft.basic.sampleRange.filterCondition)}</dd></div>
+            </dl></section> : null}
+            <section className="detail-section detail-two-column"><div><h2>复盘结论</h2><div className="review-summary"><strong>{experiment.reviewSummary.conclusion}</strong><div className="checklist">{experiment.reviewSummary.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><p>相似实验：{experiment.reviewSummary.similarExperiments.join("、") || "无"}</p><p>下一步：{experiment.reviewSummary.nextAction}</p></div></div><div><h2>实验分组含义</h2><div className="group-meaning"><div><strong>A 组 · 对照组</strong><p>保留当前线上策略，用于衡量自然波动和基准指标。</p></div><div><strong>B 组 · 实验组</strong><p>承载新策略或配置变化，与对照组比较效果。</p></div></div></div></section>
+            <section className="detail-section detail-two-column"><div><h2>来源与导入质量</h2><div className="quality-panel"><strong>{experiment.sourceQuality}</strong><span>来源平台：{experiment.sourcePlatform}</span><span>导入批次：{experiment.importBatchId}</span></div></div><div><h2>变更审计</h2><div className="timeline audit-timeline">{experiment.auditEvents.map((event) => <div className="timeline-item" key={`${experiment.id}-${event.time}-${event.action}`}><i /><div><strong>{event.action}</strong><span>{event.time} · {event.operator}</span></div></div>)}</div></div></section>
+          </> : null}
+          {detailTab === "lineage" ? renderLineageWorkbench(experiment) : null}
+          {detailTab === "rollout" ? renderRolloutWorkbench(experiment) : null}
+          {detailTab === "validation" ? <>
+            <section className="detail-section"><h2>最近校验结果</h2><div className="check-snapshot detail-check-snapshot"><span>{experiment.checkSnapshot.sampleScope}</span><strong>{experiment.checkSnapshot.preAA}</strong><strong>{experiment.checkSnapshot.uniformity}</strong><strong>{experiment.checkSnapshot.orthogonality}</strong><em>更新时间：{experiment.checkSnapshot.updatedAt}</em></div></section>
+            <section className="detail-section"><h2>统一证据时间线</h2><div className="detail-evidence-timeline">{detailEvidence.map((event) => <div className={`detail-evidence-item ${event.severity}`} key={`detail-${event.id}`}><time>{event.occurredAt}</time><div><strong>{event.title}</strong><p>{event.summary}</p><span>{event.sourcePlatform} · {event.operator}</span></div></div>)}{!detailEvidence.length ? <p className="timeline-empty">当前实验没有可用的统一证据事件。</p> : null}</div></section>
+          </> : null}
+        </div>
+      </section>
+    );
+  }
+
   function renderOverview() {
     return (
       <section className="module-page">
@@ -3261,8 +3124,8 @@ function App() {
     );
   }
 
-  function renderLineageWorkbench() {
-    const focusedExperiment = experiments.find((item) => item.id === focusedRelationshipId) ?? experiments[0];
+  function renderLineageWorkbench(detailExperiment?: ExperimentRecord) {
+    const focusedExperiment = detailExperiment ?? experiments.find((item) => item.id === focusedRelationshipId) ?? experiments[0];
     const relatedRecords = relationRecords.filter((record) => record.sourceExperimentId === focusedExperiment.id || record.targetExperimentId === focusedExperiment.id);
     const relationshipPlacements = relatedRecords.flatMap((record) => {
       const placement = relationshipPlacementForFocus(record, focusedExperiment.id);
@@ -3277,7 +3140,8 @@ function App() {
     const filteredRelations = relationRecords.filter((record) => {
       const source = experiments.find((item) => item.id === record.sourceExperimentId);
       const target = experiments.find((item) => item.id === record.targetExperimentId);
-      return (!keyword || [record.sourceExperimentId, record.targetExperimentId, source?.name, target?.name, record.reason].join(" ").toLowerCase().includes(keyword))
+      return (!detailExperiment || record.sourceExperimentId === detailExperiment.id || record.targetExperimentId === detailExperiment.id)
+        && (!keyword || [record.sourceExperimentId, record.targetExperimentId, source?.name, target?.name, record.reason].join(" ").toLowerCase().includes(keyword))
         && (relationshipFilters.type === "all" || record.type === relationshipFilters.type)
         && (relationshipFilters.risk === "all" || record.risk === relationshipFilters.risk);
     });
@@ -3299,18 +3163,18 @@ function App() {
     );
 
     return (
-      <section className="module-page relationship-workbench" data-page-id="lineage">
+      <section className="relationship-workbench detail-workbench" data-page-core="relationship-map">
         <div className="page-heading">
           <div>
             <h1>父子实验</h1>
             <p>围绕一个实验还原上下游关系、互斥风险和关系变更，避免排查时只看到孤立记录。</p>
           </div>
-          <label className="compact-select">
+          {!detailExperiment ? <label className="compact-select">
             <span>聚焦实验</span>
             <select value={focusedExperiment.id} onChange={(event) => setFocusedRelationshipId(event.target.value)}>
               {experiments.map((item) => <option key={item.id} value={item.id}>{item.id} · {item.name}</option>)}
             </select>
-          </label>
+          </label> : null}
         </div>
 
         <div className="relationship-map" aria-label="实验关系链路" data-page-core="relationship-map">
@@ -3345,11 +3209,7 @@ function App() {
                 type="button"
                 className="link-button"
                 onClick={() => {
-                  if (investigationContext?.caseId && investigationContext.experimentId === focusedExperiment.id) {
-                    navigateWithInvestigation("lineage", "relationship");
-                  } else {
-                    startInvestigation(focusedExperiment.id, { tab: "lineage", entrySource: "relationship", focus: "relationship" });
-                  }
+                  focusExperimentInvestigation(focusedExperiment.id, "relationship", "relationship");
                 }}
               >
                 加入排查
@@ -3375,10 +3235,10 @@ function App() {
                 const target = experiments.find((item) => item.id === record.targetExperimentId);
                 return <tr key={record.id}>
                   <td><button type="button" className="table-link" onClick={() => openDetail(source ?? null)}>{source?.name ?? record.sourceExperimentId}</button><span className="mono">{record.sourceExperimentId}</span></td>
-                  <td><button type="button" className="table-link" onClick={() => target && setFocusedRelationshipId(target.id)}>{target?.name ?? record.targetExperimentId}</button><span className="mono">{record.targetExperimentId}</span></td>
+                  <td><button type="button" className="table-link" onClick={() => openDetail(target ?? null)}>{target?.name ?? record.targetExperimentId}</button><span className="mono">{record.targetExperimentId}</span></td>
                   <td>{record.type}</td><td>{record.scope}</td><td>{record.reason}</td><td>{record.updatedAt}</td>
                   <td><span className={`quality-badge ${record.risk}`}>{qualityText[record.risk]}</span></td>
-                  <td><div className="row-actions"><button type="button" onClick={() => openDetail(source ?? null)}>查看详情</button>{record.risk !== "passed" ? <button type="button" onClick={() => focusExperimentInvestigation(record.sourceExperimentId, "lineage", "relationship", "relationship")}>以源实验加入排查</button> : null}</div></td>
+                  <td><div className="row-actions"><button type="button" onClick={() => openDetail(source ?? null)}>查看详情</button>{record.risk !== "passed" ? <button type="button" onClick={() => focusExperimentInvestigation(record.sourceExperimentId, "relationship", "relationship")}>以源实验加入排查</button> : null}</div></td>
                 </tr>;
               })}
             </tbody>
@@ -3394,7 +3254,7 @@ function App() {
                 <strong>{change.action}关系</strong>
                 <p>{change.reason}</p>
                 <p>{change.fieldDelta}</p>
-                {record ? <button type="button" className="link-button" onClick={() => setFocusedRelationshipId(record.sourceExperimentId === focusedExperiment.id ? record.targetExperimentId : record.sourceExperimentId)}>聚焦关联实验</button> : null}
+                {record ? <button type="button" className="link-button" onClick={() => { const peerId = record.sourceExperimentId === focusedExperiment.id ? record.targetExperimentId : record.sourceExperimentId; openDetail(experiments.find((item) => item.id === peerId) ?? null); }}>查看关联实验</button> : null}
               </div>
             })}
             {!focusedChangeEvents.length ? <p className="relationship-empty">当前实验没有关系变更记录。</p> : null}
@@ -3408,8 +3268,8 @@ function App() {
     return renderLineageWorkbench();
   }
 
-  function renderRolloutWorkbench() {
-    const rolloutSource = focusedRolloutExperiment ? [focusedRolloutExperiment] : experiments;
+  function renderRolloutWorkbench(detailExperiment?: ExperimentRecord) {
+    const rolloutSource = detailExperiment ? [detailExperiment] : focusedRolloutExperiment ? [focusedRolloutExperiment] : experiments;
     const rolloutRows = rolloutSource
       .flatMap((item) => item.rolloutEvents.map((event) => ({ ...event, experimentId: item.id, experimentName: item.name, sourcePlatform: event.sourcePlatform || item.sourcePlatform })))
       .filter((row) => {
@@ -3424,17 +3284,17 @@ function App() {
     const focusLabel = focusedRolloutExperiment ? `${focusedRolloutExperiment.id} · ${focusedRolloutExperiment.name}` : "全部实验";
 
     return (
-      <section className="module-page rollout-workbench" data-page-id="rollout">
+      <section className="rollout-workbench detail-workbench" data-page-core="rollout-timeline">
         <div className="page-heading">
           <div><h1>放量历史</h1><p>按时间回看放量变化，并把无原因、人工补录和异常窗口直接带入当前排查。</p></div>
           <div className="page-heading-actions">
-            {focusedRolloutExperiment ? <button className="ghost-button" type="button" onClick={() => { setFocusedRolloutId(null); setRolloutScope("all"); showToast("已切回全部放量历史"); }}>返回全部放量</button> : null}
-            {!focusedRolloutExperiment && investigationContext ? <button className="primary-button" type="button" onClick={() => { setRolloutScope("context"); showToast("已聚焦当前排查实验"); }}>聚焦当前实验</button> : null}
+            {!detailExperiment && focusedRolloutExperiment ? <button className="ghost-button" type="button" onClick={() => { setFocusedRolloutId(null); setRolloutScope("all"); showToast("已切回全部放量历史"); }}>返回全部放量</button> : null}
+            {!detailExperiment && !focusedRolloutExperiment && investigationContext ? <button className="primary-button" type="button" onClick={() => { setRolloutScope("context"); showToast("已聚焦当前排查实验"); }}>聚焦当前实验</button> : null}
           </div>
         </div>
 
         <div className="rollout-focus-bar">
-          <strong>{focusedRolloutExperiment ? "聚焦模式" : "全局模式"}</strong>
+          <strong>{detailExperiment || focusedRolloutExperiment ? "聚焦模式" : "全局模式"}</strong>
           <span>{focusLabel}</span>
           <span>命中 {rolloutRows.length} 条放量事件</span>
           {investigationContext ? <span>排查范围：近 {investigationContext.timeRange.replace("d", " 天")}</span> : null}
@@ -3462,11 +3322,7 @@ function App() {
               <div className="row-actions">
                 <button type="button" onClick={() => openDetail(experiments.find((item) => item.id === event.experimentId) ?? null)}>详情</button>
                 {isRisk ? <button type="button" onClick={() => {
-                  if (investigationContext?.caseId && investigationContext.experimentId === event.experimentId) {
-                    navigateWithInvestigation("rollout", "rollout");
-                  } else {
-                    startInvestigation(event.experimentId, { tab: "rollout", entrySource: "rollout", focus: "rollout" });
-                  }
+                  focusExperimentInvestigation(event.experimentId, "rollout", "rollout");
                 }}>加入排查</button> : null}
               </div>
             </article>;
@@ -3480,7 +3336,7 @@ function App() {
             <tbody>{rolloutRows.map((event) => {
               const experiment = experiments.find((item) => item.id === event.experimentId);
               const riskReasons = getRolloutRiskReasons(experiment?.rolloutEvents ?? [], event);
-              return <tr key={`${event.experimentId}-${event.time}`}><td>{event.time}</td><td><button type="button" className="table-link" onClick={() => openDetail(experiment ?? null)}>{event.experimentName}</button><span className="mono">{event.experimentId}</span></td><td>{event.type}</td><td>{event.from} → {event.to}</td><td>{event.operator}</td><td>{event.sourcePlatform}</td><td>{event.reason || "原因缺失"}{riskReasons.length ? <span className="risk-reasons">{riskReasons.join("；")}</span> : null}</td><td>{riskReasons.length ? <button type="button" className="link-button" onClick={() => focusExperimentInvestigation(event.experimentId, "rollout", "rollout", "rollout")}>加入排查</button> : <span className="muted-text">-</span>}</td></tr>;
+              return <tr key={`${event.experimentId}-${event.time}`}><td>{event.time}</td><td><button type="button" className="table-link" onClick={() => openDetail(experiment ?? null)}>{event.experimentName}</button><span className="mono">{event.experimentId}</span></td><td>{event.type}</td><td>{event.from} → {event.to}</td><td>{event.operator}</td><td>{event.sourcePlatform}</td><td>{event.reason || "原因缺失"}{riskReasons.length ? <span className="risk-reasons">{riskReasons.join("；")}</span> : null}</td><td>{riskReasons.length ? <button type="button" className="link-button" onClick={() => focusExperimentInvestigation(event.experimentId, "rollout", "rollout")}>加入排查</button> : <span className="muted-text">-</span>}</td></tr>;
             })}</tbody>
           </table>
         </div>
@@ -3746,9 +3602,9 @@ function App() {
               {!evidenceTimeline.length ? <p className="timeline-empty">当前时间范围没有可用证据。</p> : null}
             </div>
             <div className="current-investigation-actions">
-              <button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => navigateWithInvestigation("lineage", "relationship")}>查看关系</button>
-              <button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => navigateWithInvestigation("rollout", "rollout")}>查看放量</button>
-              <button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetail(currentExperiment)}>校验快照</button>
+              <button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => openDetailTab(currentExperiment, "lineage")}>查看关系</button>
+              <button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => openDetailTab(currentExperiment, "rollout")}>查看放量</button>
+              <button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetailTab(currentExperiment, "validation")}>校验快照</button>
             </div>
           </> : <p className="current-investigation-empty">从异常队列或实验详情开始排查后，这里会连续展示同一实验的关系、放量、校验与告警证据。</p>}
         </section>
@@ -3821,7 +3677,7 @@ function App() {
             <div className="monitor-queue-heading"><h2>异常队列</h2><span>上线后新增实验持续参与冲突扫描</span></div>
             {filteredMonitorAlerts.map((alert) => { const experiment = experiments.find((item) => item.id === alert.experimentId); return <article className={`monitor-alert-card ${alert.severity}`} key={alert.id}><div className="alert-card-head"><span className={`severity-badge ${alert.severity}`}>{alert.severity === "critical" ? "紧急" : "关注"}</span><strong>{experiment?.name}</strong><span>{alert.updatedAt}</span></div><div className="alert-card-body"><div><span>异常指标</span><strong>{alert.metric}</strong></div><p>{alert.evidence}</p><div><span>负责人</span><strong>{alert.owner}</strong></div></div><div className="row-actions"><button type="button" onClick={() => openDetail(experiment ?? null)}>详情</button><button type="button" data-start-investigation={alert.experimentId} onClick={() => startInvestigation(alert.experimentId, { alertId: alert.id, focus: "metric" })}>建立排查</button><button type="button" className="primary-button" onClick={() => { setSelectedAlertId(alert.id); setMonitorView("attribution"); }}>分析影响来源</button></div></article>; })}
           </section>
-          {investigationContext?.caseId ? <section className="current-investigation"><div className="current-investigation-heading"><div><h2>当前排查</h2><span>{investigationContext.caseId} · {investigationContext.owner}</span></div><span className={`investigation-status ${investigationContext.status}`}>{investigationStatusText[investigationContext.status]}</span></div><div className="current-investigation-actions"><button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => navigateWithInvestigation("lineage", "relationship")}>查看关系</button><button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => navigateWithInvestigation("rollout", "rollout")}>查看放量</button><button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetail(targetExperiment)}>校验快照</button></div></section> : null}
+          {investigationContext?.caseId ? <section className="current-investigation"><div className="current-investigation-heading"><div><h2>当前排查</h2><span>{investigationContext.caseId} · {investigationContext.owner}</span></div><span className={`investigation-status ${investigationContext.status}`}>{investigationStatusText[investigationContext.status]}</span></div><div className="current-investigation-actions"><button type="button" className="primary-button" data-evidence-focus="relationship" onClick={() => openDetailTab(targetExperiment, "lineage")}>查看关系</button><button type="button" className="ghost-button" data-evidence-focus="rollout" onClick={() => openDetailTab(targetExperiment, "rollout")}>查看放量</button><button type="button" className="ghost-button" data-evidence-focus="validation" onClick={() => openDetailTab(targetExperiment, "validation")}>校验快照</button></div></section> : null}
         </> : null}
 
         {monitorView === "attribution" ? <section className="attribution-workbench" data-page-core="cross-experiment-attribution">
@@ -4251,7 +4107,7 @@ function App() {
             {conflictRelations.length ? (
               <div className="risk-queue compact-risk-queue">
                 {conflictRelations.map((record) => (
-                  <button key={record.id} type="button" onClick={() => navigateToTab("lineage")}>
+                  <button key={record.id} type="button" onClick={() => openDetailTab(selectedCheckExperiment, "lineage")}>
                     <strong>{record.type}</strong>
                     <span>{record.sourceExperimentId} {"->"} {record.targetExperimentId}</span>
                     <em>{record.scope}</em>

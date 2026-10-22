@@ -1,4 +1,4 @@
-export type DrawerName = "detail" | "help" | "import" | "filters" | "create";
+export type DrawerName = "help" | "import" | "filters" | "create";
 
 export interface DrawerPopResult {
   stack: DrawerName[];

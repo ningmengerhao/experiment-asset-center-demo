@@ -40,14 +40,14 @@ check("artifact does not contain the React development runtime", !dist.includes(
 check("legacy hand-written static DOM contract is absent", !dist.includes('data-page="evaluate"') && !dist.includes('id="rolloutBody"') && !dist.includes("function switchTab"));
 
 check("ordinary-user navigation starts with experiment management and removes legacy stage groups", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*label:\s*"实验管理"/.test(app) && !app.includes('title: "首页"') && !app.includes('title: "实验前"') && !app.includes('title: "分流阶段"') && !app.includes('title: "上线前"'));
-check("experiment management retains ledger lineage rollout and imports without seed history", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*key:\s*"lineage"[\s\S]*key:\s*"rollout"[\s\S]*key:\s*"myImports"/.test(app) && !app.includes('key: "seedHistory"'));
+check("experiment management keeps only the ledger and import entry", /title:\s*"实验管理"[\s\S]*key:\s*"list"[\s\S]*key:\s*"myImports"/.test(app) && !app.includes('key: "seedHistory"') && !app.includes('{ key: "lineage", label: "父子实验"') && !app.includes('{ key: "rollout", label: "放量历史"'));
 check("legacy evaluation split and check pages are not rendered", !includesAll(app, ['activeTab === "evaluate"', 'activeTab === "seed"', 'activeTab === "check"']));
 check("monitor workbench has alerts attribution and rule configuration", includesAll(monitorPage, ["告警中心", "异常归因", "规则配置", "data-monitor-view", "分析影响来源", "关联嫌疑，不代表因果"]));
 check("alert rules expose permission status version and audit feedback", includesAll(monitorPage, ["告警规则", "连续周期", "通知对象", "版本", "变更记录", "validateAlertRule", "transitionAlertRule"]));
 check("permission page supports role profiles scopes and audit", includesAll(permissionPage, ["角色档案", "可见范围", "动作权限", "代理负责人", "规则阈值范围", "权限变更记录"]));
 check("ordinary-user pages are real render targets", includesAll(app, [
   'activeTab === "investigate"', 'activeTab === "list"',
-  'activeTab === "lineage"', 'activeTab === "rollout"', 'activeTab === "myImports"',
+  'activeTab === "myImports"', 'selected ? renderExperimentDetail(selected)',
 ]));
 check("admin pages remain role gated", includesAll(app, ['roleView === "admin"', "importReview", "governance", "permission"]));
 check("navigation and hash share one entry point", includesAll(app, ["function navigateToTab", 'window.addEventListener("hashchange"', "buildInvestigationHash", "recoverInvestigationLocation"]));
@@ -70,13 +70,14 @@ check("ledger uses unified statuses and conditional lifecycle actions", includes
 check("all ledger records can be duplicated into editable drafts", includesAll(app, ["createDraftFromExperimentRecord", "duplicateExperimentRecord", "_copy", "data-duplicate-experiment", 'createLocalExperimentRecord(draft, "draft")']));
 check("custom seeds can be validated in the creation flow", includesAll(app, ["自定义随机数种子", "data-create-custom-seed", "data-validate-custom-seed", "validateCustomCreateSeed", "customCandidate", "isValidCustomSeed"]) && includesAll(css, [".create-custom-seed-field", ".create-custom-seed-check"]));
 check("metric library and offline access center support role-free metrics and experiment design", includesAll(app, ["renderMetricLibrary", "renderAccessCenter", "data-page-id=\"metrics\"", "data-page-id=\"access\"", "指标管理", "历史开始日期", "历史结束日期", "data-create-core-metric", "data-create-guardrail-add", "data-create-guardrail-remove", "data-create-filter-condition", "appendFilterCondition", "validateFilterCondition", "resolveHistoricalSnapshot", "selectDemoAccount"]) && !metricLibraryPage.includes("指标类型") && !metricLibraryPage.includes("type: ") && includesAll(css, [".metric-library-layout", ".demo-login", ".guardrail-metric-field", ".sample-sql-preview", ".access-request-list"]));
-check("legacy validation entry points open snapshots instead of old pages", includesAll(app, ["校验快照", "当前详情已展示最近校验快照", 'openDetail(currentExperiment)']) && !app.includes('navigateWithInvestigation("check", "validation")'));
+check("full detail uses accessible tabs and keeps investigation last", includesAll(app, ['data-page-id="detail"', 'role="tablist"', 'role="tab"', 'aria-selected={detailTab === item.id}', '"基础信息"', '"父子实验"', '"放量历史"', '"校验快照"', 'data-start-investigation={experiment.id}', 'onKeyDown={selectAdjacentTab}', 'openDetailTab(currentExperiment, "validation")']) && includesAll(css, [".experiment-detail-page", ".detail-tabs", ".detail-summary-grid", ".detail-tab-panel"]));
+check("removed relationship and rollout routes fall back to the ledger", !/^\s*"lineage",/m.test(investigation) && !/^\s*"rollout",/m.test(investigation));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "list", context: null };', 'return { tab: "list", context: stored, invalidHash: true, shouldPersist: false };']));
 check("investigation browser selectors exist", includesAll(app, ["data-start-investigation", "data-investigation-status", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
   "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"",
   "data-page-id=\"check\"", "data-page-id=\"investigate\"", "data-page-id=\"list\"",
-  "data-page-id=\"lineage\"", "data-page-id=\"rollout\"", "data-page-id=\"myImports\"", "data-page-core=",
+  "data-page-id=\"detail\"", "data-page-id=\"myImports\"", "data-page-core=",
 ]));
 check("investigation context exposes exact state attributes", includesAll(app, [
   "data-investigation-experiment", "data-investigation-alert", "data-investigation-range", "data-investigation-focus",
@@ -87,7 +88,7 @@ check("keyboard focus styles are visible", includesAll(css, [":focus-visible", "
 check("layout-changing transitions stay absent", !/transition\s*:[^;]*(?:width|max-width|padding|margin|height)/i.test(css));
 
 check("browser verifier uses system Edge CDP", includesAll(browserVerifier, ["Microsoft", "Edge", "--remote-debugging-port", "new WebSocket", "Runtime.evaluate"]));
-check("browser verifier covers the investigation chain", includesAll(browserVerifier, ["ALT-003", "history.back()", "relationship hash", "browser back restores"]));
+check("browser verifier covers the investigation-to-detail chain", includesAll(browserVerifier, ["ALT-003", "relationship detail tab", "detail returns to its source page", "data-detail-tab=\"rollout\""]));
 check("browser verifier covers Escape and focus restore", includesAll(browserVerifier, ["Input.dispatchKeyEvent", "headerHelpButton", "help trigger focus restoration"]));
 check("browser verifier covers all required viewports", includesAll(browserVerifier, ["width: 1366", "width: 585", "width: 390", "page-level horizontal overflow"]));
 check("browser verifier performs physical exact clicks", includesAll(browserVerifier, ["Input.dispatchMouseEvent", "elementFromPoint", "isContentEditable", "disabled"])

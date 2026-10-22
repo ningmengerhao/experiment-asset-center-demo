@@ -89,7 +89,7 @@ assert.equal(urlOverride.context?.evidenceFocus, "rollout");
 assert.equal(urlOverride.shouldPersist, true);
 saveInvestigationContext(urlOverride.context, storage);
 assert.equal(loadInvestigationContext(storage)?.timeRange, "7d");
-assert.equal(buildInvestigationHash("lineage", loadInvestigationContext(storage)), "#lineage?experiment=EXP-240611-017&alert=ALT-001&range=7d&focus=rollout");
+assert.equal(buildInvestigationHash("lineage", loadInvestigationContext(storage)), "#list?experiment=EXP-240611-017&alert=ALT-001&range=7d&focus=rollout");
 
 // The real state machine permits one legal transition and rejects a shortcut.
 const resolved = transitionInvestigation(storedContext, "resolved", "已定位放量窗口重叠");
@@ -98,10 +98,10 @@ assert.throws(() => transitionInvestigation(storedContext, "closed", "跳过定�
 
 // Drawer behavior is executed directly rather than reimplemented in this
 // verifier. UI assertions below only prove App consumes this contract.
-const nestedDrawers = pushDrawer(pushDrawer([], "detail"), "help");
-assert.deepEqual(nestedDrawers, ["detail", "help"]);
-assert.deepEqual(popDrawer(nestedDrawers), { stack: ["detail"], closed: "help", active: "detail" });
-assert.deepEqual(pushDrawer(nestedDrawers, "detail"), ["help", "detail"]);
+const nestedDrawers = pushDrawer(pushDrawer([], "create"), "help");
+assert.deepEqual(nestedDrawers, ["create", "help"]);
+assert.deepEqual(popDrawer(nestedDrawers), { stack: ["create"], closed: "help", active: "create" });
+assert.deepEqual(pushDrawer(nestedDrawers, "create"), ["help", "create"]);
 assert.deepEqual(popDrawer([]), { stack: [], closed: null, active: null });
 assert.equal(getFocusTrapTarget(3, 2, false), 0);
 assert.equal(getFocusTrapTarget(3, 0, true), 2);
@@ -147,9 +147,9 @@ for (const token of [
 assert.match(app, /type="checkbox"/, "React Task 4: problem types must use real multi-select checkboxes");
 assert.match(app, /filteredMonitorAlerts/, "React Task 4: monitor queue must be filtered from selected problem types");
 assert.match(app, /className="rollout-timeline"/, "React Task 4: rollout needs a first-viewport timeline");
-assert.match(app, /const detailEvidence/, "React Task 4: detail drawer must derive scoped evidence");
-assert.match(app, /navigateWithInvestigation\("lineage", "relationship"\)/, "React Task 4: relationship focus must preserve context");
-assert.match(app, /navigateWithInvestigation\("rollout", "rollout"\)/, "React Task 4: rollout focus must preserve context");
+assert.match(app, /const detailEvidence/, "React Task 4: detail page must derive scoped evidence");
+assert.match(app, /openDetailTab\(currentExperiment, "lineage"\)/, "React Task 4: relationship focus must open the current detail tab");
+assert.match(app, /openDetailTab\(currentExperiment, "rollout"\)/, "React Task 4: rollout focus must open the current detail tab");
 assert.match(app, /校验快照/, "React Task 4: validation evidence must remain available as a snapshot");
 assert.match(css, /\.rollout-timeline/, "CSS Task 4: rollout timeline styles missing");
 assert.match(css, /\.relationship-map/, "CSS Task 4: relationship map styles missing");
@@ -215,24 +215,21 @@ function rapidChangeReasons(events, event) {
   return neighbours.length ? [`7天内连续放量（相邻 ${neighbours.length} 次）`] : [];
 }
 assert.ok(rapidChangeReasons(parentRollouts, parentRollouts[0]).length > 0, "React review: mock events must exercise the seven-day repeated-rollout path");
-assert.match(app, /drawer-investigation-actions[\s\S]*closeTopmostDrawer\(\);[\s\S]*investigationContext\?\.caseId/, "React review: detail primary investigation action must close the drawer before navigation");
+assert.match(app, /function\s+renderExperimentDetail[\s\S]*data-start-investigation=\{experiment\.id\}/, "React review: full detail page must expose its investigation action");
 assert.doesNotMatch(rawApp, /Legacy (relationship|rollout|monitoring) view retained/, "React review: legacy render bodies must be deleted, not commented out");
 assert.doesNotMatch(rawApp, /\/\*[\s\S]*?Legacy[\s\S]*?\*\//, "React review: legacy block comments remain");
 
-// Search results must not change a local focus and then enter a route whose
-// active investigation context overwrites that focus. A different experiment
-// stays in its detail drawer until the user explicitly starts/replaces a case.
+// Search results must open the matching full-page detail tab without changing
+// the current hash or replacing the active investigation context.
 const rolloutSearchBlock = app.match(/const rolloutResults =([\s\S]*?)const relationResults =/);
 assert.ok(rolloutSearchBlock, "React review: rollout global-search results missing");
-assert.match(rolloutSearchBlock[1], /investigationContext\?\.caseId && investigationContext\.experimentId === item\.id[\s\S]*navigateWithInvestigation\("rollout", "rollout"\)/, "React review: same-context rollout search must preserve the active investigation");
-assert.match(rolloutSearchBlock[1], /else\s*\{\s*openDetail\(item\);\s*\}/, "React review: cross-experiment rollout search must open that experiment detail");
-assert.doesNotMatch(rolloutSearchBlock[1], /setFocusedRolloutId\(item\.id\)[\s\S]{0,160}navigateToTab\("rollout"\)/, "React review: rollout search must not let contextual navigation overwrite a selected experiment");
+assert.match(rolloutSearchBlock[1], /action:\s*\(\) => openDetailTab\(item, "rollout"\)/, "React review: rollout search must open the rollout detail tab");
+assert.doesNotMatch(rolloutSearchBlock[1], /navigateWithInvestigation\("rollout", "rollout"\)/, "React review: rollout search must not navigate to a removed route");
 const relationshipSearchBlock = app.match(/const relationResults =([\s\S]*?)const sourceResults =/);
 assert.ok(relationshipSearchBlock, "React review: relationship global-search results missing");
 assert.match(relationshipSearchBlock[1], /const relationExperiment = experiments\.find\(/, "React review: relationship search must resolve a concrete experiment");
-assert.match(relationshipSearchBlock[1], /investigationContext\?\.caseId && \(investigationContext\.experimentId === record\.sourceExperimentId \|\| investigationContext\.experimentId === record\.targetExperimentId\)[\s\S]*navigateWithInvestigation\("lineage", "relationship"\)/, "React review: matching relationship context must retain its focused experiment");
-assert.match(relationshipSearchBlock[1], /else\s*\{\s*openDetail\(relationExperiment \?\? null\);\s*\}/, "React review: cross-experiment relationship search must open a concrete detail drawer");
-assert.doesNotMatch(relationshipSearchBlock[1], /action:\s*\(\) => navigateToTab\("lineage"\)/, "React review: relationship search must not navigate generically without an experiment binding");
+assert.match(relationshipSearchBlock[1], /action:\s*\(\) => openDetailTab\(relationExperiment \?\? null, "lineage"\)/, "React review: relationship search must open a concrete detail tab");
+assert.doesNotMatch(relationshipSearchBlock[1], /navigateWithInvestigation\("lineage", "relationship"\)/, "React review: relationship search must not navigate to a removed route");
 assert.match(css, /@media \(max-width: 1180px\)[\s\S]*\.relationship-map/, "CSS review: 1180 relationship map reflow missing");
 assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.monitor-queue-columns/, "CSS review: mobile monitor queue reflow missing");
 assert.match(css, /@media \(max-width: 760px\)[\s\S]*\.rollout-timeline-event/, "CSS review: mobile rollout timeline reflow missing");
@@ -247,12 +244,12 @@ assert.match(app, /pushDrawer\(current, drawer\)/, "Task 5: drawer opens must us
 assert.match(app, /const result = popDrawer\(drawerStack\)/, "Task 5: drawer close must use immutable stack semantics");
 assert.match(app, /role="dialog"/, "Task 5: drawers must expose dialog semantics");
 assert.match(app, /aria-modal="true"/, "Task 5: drawers must be modal");
-assert.match(app, /aria-labelledby="detail-drawer-title"/, "Task 5: detail drawer needs a stable title reference");
 assert.match(app, /aria-labelledby="help-drawer-title"/, "Task 5: help drawer needs a stable title reference");
 assert.match(app, /aria-labelledby="import-drawer-title"/, "Task 5: import drawer needs a stable title reference");
-assert.match(app, /id="detail-drawer-title"/, "Task 5: detail title id missing");
 assert.match(app, /id="help-drawer-title"/, "Task 5: help title id missing");
 assert.match(app, /id="import-drawer-title"/, "Task 5: import title id missing");
+assert.match(app, /role="tablist"/, "Task 5: detail uses an accessible tab list");
+assert.match(app, /aria-selected=\{detailTab === item\.id\}/, "Task 5: detail tabs expose their selection state");
 assert.match(app, /inert=\{hasOpenDrawer \|\| undefined\}/, "Task 5: background must be inert while a drawer is open");
 assert.match(app, /function\s+closeTopmostDrawer\s*\(/, "Task 5: topmost drawer close helper missing");
 assert.match(app, /if \(activeDrawer\)\s*\{\s*closeTopmostDrawer\(\);/, "Task 5: Escape must close only the topmost drawer");

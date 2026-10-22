@@ -180,9 +180,9 @@ const recoveryCases = [
     expected: ["list", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", false, false],
   },
   {
-    name: "no contextual URL restores stored context without persistence",
+    name: "removed lineage URL falls back to the ledger while preserving stored context",
     hash: "#lineage",
-    expected: ["lineage", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", false, false],
+    expected: ["list", "EXP-240611-017", "CASE-240820-001", "14d", "rollout", true, false],
   },
   {
     name: "direct contextual URL without storage requests persistence",
@@ -219,7 +219,7 @@ const crossExperimentRecovery = recoverInvestigationLocation(
 );
 saveInvestigationContext(crossExperimentRecovery.context, crossExperimentStorage);
 assert.equal(
-  recoverInvestigationLocation("#rollout", crossExperimentStorage).context?.experimentId,
+  recoverInvestigationLocation("#list", crossExperimentStorage).context?.experimentId,
   "EXP-240615-022",
   "persisting a cross-experiment URL prevents the old experiment from resurfacing",
 );

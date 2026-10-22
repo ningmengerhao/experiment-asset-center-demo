@@ -1,24 +1,24 @@
 import assert from "node:assert/strict";
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "../src/drawer.mjs";
 
-const detailOnly = pushDrawer([], "detail");
-const detailThenHelp = pushDrawer(detailOnly, "help");
-assert.deepEqual(detailThenHelp, ["detail", "help"], "opening help must layer over detail");
-assert.deepEqual(detailOnly, ["detail"], "pushDrawer must not mutate its input");
+const createOnly = pushDrawer([], "create");
+const createThenHelp = pushDrawer(createOnly, "help");
+assert.deepEqual(createThenHelp, ["create", "help"], "opening help must layer over an existing dialog");
+assert.deepEqual(createOnly, ["create"], "pushDrawer must not mutate its input");
 
-const afterEscape = popDrawer(detailThenHelp);
+const afterEscape = popDrawer(createThenHelp);
 assert.equal(afterEscape.closed, "help", "Escape/backdrop pops only the topmost drawer");
-assert.equal(afterEscape.active, "detail", "closing help must reveal detail again");
-assert.deepEqual(afterEscape.stack, ["detail"]);
-assert.deepEqual(detailThenHelp, ["detail", "help"], "popDrawer must not mutate its input");
+assert.equal(afterEscape.active, "create", "closing help must reveal the prior dialog");
+assert.deepEqual(afterEscape.stack, ["create"]);
+assert.deepEqual(createThenHelp, ["create", "help"], "popDrawer must not mutate its input");
 
-const duplicateTop = pushDrawer(["detail", "help"], "detail");
-assert.deepEqual(duplicateTop, ["help", "detail"], "reopening a drawer moves it to the top without duplication");
+const duplicateTop = pushDrawer(["create", "help"], "create");
+assert.deepEqual(duplicateTop, ["help", "create"], "reopening a drawer moves it to the top without duplication");
 assert.equal(new Set(duplicateTop).size, duplicateTop.length);
 
-const detailThenFilters = pushDrawer(detailOnly, "filters");
-assert.deepEqual(detailThenFilters, ["detail", "filters"], "opening filters must layer over the active page or drawer");
-assert.deepEqual(popDrawer(detailThenFilters), { stack: ["detail"], closed: "filters", active: "detail" }, "closing filters must restore the prior drawer");
+const createThenFilters = pushDrawer(createOnly, "filters");
+assert.deepEqual(createThenFilters, ["create", "filters"], "opening filters must layer over the active page or drawer");
+assert.deepEqual(popDrawer(createThenFilters), { stack: ["create"], closed: "filters", active: "create" }, "closing filters must restore the prior drawer");
 
 const createThenImport = pushDrawer(["create"], "import");
 assert.deepEqual(createThenImport, ["create", "import"], "upload import must be able to layer over the creation choice dialog");

@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-22 - Full-page Experiment Detail Tabs (v0.6.4)
+
+Changed:
+
+- Replaced the right-side experiment detail drawer with a full workspace page that preserves its source page and hash while open.
+- Added accessible detail tabs for 基础信息, 父子实验, 放量历史, and 校验快照; the relationship and rollout views now always scope to the selected experiment.
+- Moved 开始排查/继续排查 to the end of the detail tab row and retained the existing local investigation context behavior.
+- Removed the 父子实验 and 放量历史 entries from the sidebar and retired their standalone hash routes; old `#lineage` and `#rollout` links now normalize to `#list`.
+
 ## 2026-09-03 - Experiment Management Navigation (v0.6.3)
 
 Changed:

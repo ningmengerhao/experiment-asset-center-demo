@@ -21,8 +21,6 @@ const userTabs = [
   ["access", "我的权限", "access-center"],
   ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
-  ["lineage", "父子实验", "relationship-map"],
-  ["rollout", "放量历史", "rollout-timeline"],
   ["myImports", "批量导入记录", "import-history"],
 ];
 const viewports = [
@@ -30,7 +28,7 @@ const viewports = [
   { width: 585, height: 1024 },
   { width: 390, height: 844 },
 ];
-const tableRequiredTabs = new Set(["list", "lineage", "rollout", "myImports"]);
+const tableRequiredTabs = new Set(["list", "myImports"]);
 const investigationStorageKey = "experiment-asset-investigation-v1";
 const defaultTimeout = 10_000;
 
@@ -448,7 +446,7 @@ async function run() {
     await physicalClick(".demo-account-grid button:first-child");
     await waitFor("demo admin login", () => evaluate(`Boolean(document.querySelector('[data-page-id="list"]'))`));
     await expectPageContract("list", "实验清单", "experiment-ledger");
-    assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "首页", "List route must render as the home navigation item.");
+    assert.equal(await evaluate(`document.querySelector('[data-nav-id="list"]')?.textContent.trim()`), "实验管理", "List route must render as the experiment management navigation item.");
     pass("empty URL opens the experiment ledger home");
 
     await openUrl(`${distUrl}#list`);
@@ -474,24 +472,13 @@ async function run() {
     pass("deep link restores the current investigation and URL overrides");
 
     await physicalClick(`.current-investigation-actions [data-evidence-focus="relationship"]`);
-    await waitFor("relationship hash", () => evaluate(`location.hash.startsWith("#lineage?experiment=EXP-240611-017")`));
-    await expectPageContract("lineage", "父子实验", "relationship-map");
-    assert.equal(await evaluate(`document.querySelector("[data-investigation-experiment]")?.dataset.investigationFocus`), "relationship");
-    pass("investigation navigates to relationship evidence");
+    await waitFor("relationship detail tab", () => evaluate(`document.querySelector('[data-page-id="detail"]')?.dataset.detailExperiment === "EXP-240611-017" && document.querySelector('[data-detail-tab="lineage"]')?.getAttribute("aria-selected") === "true"`));
+    assert.equal(await evaluate(`location.hash.startsWith("#investigate?experiment=EXP-240611-017")`), true, "Detail must retain the source hash.");
+    pass("investigation opens the current experiment relationship detail tab");
 
-    await evaluate("history.back()");
-    await waitFor("browser back to investigation", () => evaluate(`location.hash.startsWith("#investigate?experiment=EXP-240611-017")`));
+    await physicalClick(".back-link");
     await expectPageContract("investigate", "监控排查", "alert-queue");
-    assert.deepEqual(await evaluate(`(() => {
-      const context = document.querySelector("[data-investigation-experiment]");
-      return context ? {
-        experiment: context.dataset.investigationExperiment,
-        alert: context.dataset.investigationAlert,
-        range: context.dataset.investigationRange,
-        focus: context.dataset.investigationFocus,
-      } : null;
-    })()`), { experiment: "EXP-240611-017", alert: "ALT-003", range: "14d", focus: "relationship" }, "Browser back lost investigation evidence context.");
-    pass("browser back restores alert and time-range context while retaining evidence focus");
+    pass("detail returns to its source page without changing the hash");
 
     await physicalClick("#headerHelpButton");
     await waitFor("help dialog", () => evaluate(`Boolean(document.querySelector("#helpDrawer [role=dialog]"))`));
@@ -630,7 +617,7 @@ async function run() {
     await waitFor("import drawer closes", () => evaluate(`!document.querySelector(".import-drawer")`));
     pass("new experiment can route to the existing upload import flow");
 
-    for (const legacyHash of ["#evaluate", "#seed", "#check"]) {
+    for (const legacyHash of ["#evaluate", "#seed", "#check", "#lineage", "#rollout"]) {
       await openUrl(`${distUrl}${legacyHash}`);
       await waitFor(`${legacyHash} normalization`, () => evaluate(`location.hash === "#list"`));
       await expectPageContract("list", "实验清单", "experiment-ledger");
@@ -684,27 +671,22 @@ async function run() {
       await captureScreenshot("monitor");
 
       await physicalClick(`.current-investigation-actions [data-evidence-focus="relationship"]`);
-      await waitFor("lineage screenshot state", () => evaluate(`location.hash.startsWith("#lineage?experiment=EXP-240611-017")`));
-      await expectPageContract("lineage", "父子实验", "relationship-map");
+      await waitFor("lineage detail screenshot state", () => evaluate(`document.querySelector('[data-page-id="detail"]')?.dataset.detailExperiment === "EXP-240611-017" && document.querySelector('[data-detail-tab="lineage"]')?.getAttribute("aria-selected") === "true"`));
       await captureScreenshot("lineage");
 
-      await physicalClick(`[data-nav-id="investigate"]`);
-      await waitFor("investigation page before rollout screenshot", () => evaluate(`location.hash.startsWith("#investigate?experiment=EXP-240611-017")`));
-      await physicalClick(`.current-investigation-actions [data-evidence-focus="rollout"]`);
-      await waitFor("rollout screenshot state", () => evaluate(`location.hash.startsWith("#rollout?experiment=EXP-240611-017")`));
-      await expectPageContract("rollout", "放量历史", "rollout-timeline");
+      await physicalClick('[data-detail-tab="rollout"]');
+      await waitFor("rollout detail screenshot state", () => evaluate(`document.querySelector('[data-detail-tab="rollout"]')?.getAttribute("aria-selected") === "true" && Boolean(document.querySelector('[data-page-core="rollout-timeline"]'))`));
       await captureScreenshot("rollout");
 
       await openUrl(`${distUrl}#list`);
       await expectPageContract("list", "实验清单", "experiment-ledger");
       await physicalClick(`[data-page-id="list"] .ledger-table tbody tr:first-child .row-actions button:first-child`);
-      await waitFor("experiment detail dialog", () => evaluate(`document.querySelector(".detail-drawer[role=dialog]")?.getAttribute("aria-modal") === "true"`));
-      assert.equal(await evaluate(`document.querySelector("#detail-drawer-title")?.textContent.trim()`), "新版首购引导流程", "Detail screenshot opened the wrong experiment.");
+      await waitFor("experiment detail page", () => evaluate(`document.querySelector('[data-page-id="detail"]')?.dataset.detailExperiment === "EXP-240610-001"`));
+      assert.equal(await evaluate(`document.querySelector('.experiment-detail-page h1')?.textContent.trim()`), "新版首购引导流程", "Detail screenshot opened the wrong experiment.");
       await captureScreenshot("detail");
 
-      await cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
-      await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
-      await waitFor("detail dialog to close before mobile screenshot", () => evaluate(`!document.querySelector(".detail-drawer[role=dialog]")`));
+      await physicalClick(".back-link");
+      await waitFor("detail page to close before mobile screenshot", () => evaluate(`!document.querySelector('[data-page-id="detail"]')`));
 
       await setViewport({ width: 390, height: 844 });
       await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview`);

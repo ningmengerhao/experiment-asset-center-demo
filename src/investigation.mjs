@@ -12,8 +12,6 @@ const tabs = new Set([
   "create",
   "list",
   "investigate",
-  "lineage",
-  "rollout",
   "myImports",
   "importReview",
   "governance",
