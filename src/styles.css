@@ -3010,7 +3010,7 @@ textarea:focus {
 }
 
 .permission-request-dialog {
-  width: min(520px, 100%);
+  width: min(560px, 100%);
   height: auto;
   max-height: min(680px, 100%);
   border: 1px solid var(--line);
@@ -3136,11 +3136,12 @@ textarea:focus {
 
 .permission-request-resource {
   display: grid;
-  gap: 4px;
-  margin: 18px 0;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  background: var(--bg);
+  gap: 6px;
+  margin: 20px 0 14px;
+  padding: 14px 16px;
+  border: 1px solid #dce7f7;
+  border-left: 3px solid var(--primary);
+  background: #f7faff;
 }
 
 .permission-request-resource span {
@@ -3148,16 +3149,58 @@ textarea:focus {
   font-size: 12px;
 }
 
+.permission-request-resource strong {
+  color: var(--text-1);
+  font-size: 16px;
+}
+
 .permission-request-options {
-  display: flex;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   margin: 0 0 18px;
 }
 
 .permission-request-options label {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 7px;
+  min-height: 42px;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text-1);
+}
+
+.permission-request-options label:has(input:checked) {
+  border-color: #9fc2ff;
+  background: #f3f7ff;
+}
+
+.permission-request-options input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.permission-request-summary {
+  display: grid;
+  gap: 4px;
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  background: var(--bg);
+}
+
+.permission-request-summary strong {
+  color: var(--text-1);
+  font-size: 14px;
+}
+
+.permission-request-summary span {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .metric-restricted-state {

@@ -608,12 +608,12 @@ async function run() {
     await openUrl(`${distUrl}#list`);
     await waitFor("restricted ledger entry", () => evaluate(`Boolean(document.querySelector('[data-experiment-access="restricted"] [data-request-experiment]'))`));
     assert.equal(await evaluate(`(() => { const row = document.querySelector('[data-experiment-access="restricted"]'); return row?.querySelectorAll(".row-actions button").length === 1 && row.querySelector(".row-actions button")?.textContent.trim() === "申请"; })()`), true, "Restricted ledger rows must expose only the apply action.");
+    assert.equal(await evaluate(`Boolean(document.querySelector('[data-experiment-access="restricted"] [data-delete-experiment]'))`), false, "A view-only user must not receive a delete action.");
     const restrictedActionWidth = await evaluate(`(() => { const cell = document.querySelector('[data-experiment-access="restricted"] td:last-child'); return Math.round(cell?.getBoundingClientRect().width || 0); })()`);
     assert.equal(restrictedActionWidth, 256, "Ledger action column must retain a fixed 256px width.");
     await physicalClick('[data-request-experiment]');
     await waitFor("permission request dialog", () => evaluate(`document.querySelector("[data-permission-request-dialog]")?.getAttribute("aria-modal") === "true"`));
-    await physicalClick('[data-permission-request-dialog] input[type="checkbox"]:last-of-type');
-    assert.equal(await evaluate(`(() => { const fields = [...document.querySelectorAll('[data-permission-request-dialog] input[type="checkbox"]')]; return fields.length === 2 && fields.every((field) => field.checked); })()`), true, "Requesting edit must also select view.");
+    assert.equal(await evaluate(`(() => { const fields = [...document.querySelectorAll('[data-permission-request-dialog] input[type="checkbox"]')]; return fields.length === 1 && fields[0].checked && fields[0].parentElement?.textContent.includes("查看"); })()`), true, "A view-qualified user may only request resource-level view access.");
     await typeText('[data-permission-request-dialog] textarea', "需要处理当前实验设计和校验结果。");
     await physicalClick('[data-permission-request-dialog] .primary-button');
     await waitFor("permission request submit", () => evaluate(`!document.querySelector("[data-permission-request-dialog]")`));
@@ -632,7 +632,7 @@ async function run() {
     await physicalClick('[data-message-center] [aria-label^="选择权限申请"]');
     await physicalClick('[data-message-center] .message-center-panel-head .primary-button');
     await waitFor("batch approval", () => evaluate(`!document.querySelector('[data-message-center] [aria-label^="选择权限申请"]')`));
-    pass("message center supports contextual requests and administrator approval");
+    pass("message center routes experiment requests to the responsible owner for approval");
 
     await openUrl(`${distUrl}#roles`);
     await waitFor("administrator persists after refresh", () => evaluate(`document.querySelector('[data-page-id="roles"]')?.textContent.includes("角色管理")`));

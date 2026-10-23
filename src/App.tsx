@@ -71,7 +71,7 @@ import {
   validateAlertRule,
 } from "./monitoring.mjs";
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
-import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
+import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
@@ -1177,6 +1177,9 @@ function App() {
   const hasOpenDrawer = Boolean(activeDrawer);
   const can = (permission: string, resource: any = {}) => canAccess(demoState, activeAccount, permission, resource);
   const canAccessDomain = (resource: any = {}) => hasDomainAccess(demoState, activeAccount, resource);
+  const canList = (resource: any = {}) => canListExperiment(demoState, activeAccount, resource);
+  const canRequestExperiment = (permission: string, resource: any = {}) => canRequestExperimentPermission(demoState, activeAccount, permission, resource);
+  const canRequestMetricEditPermission = (resource: any = {}) => canRequestMetricEdit(demoState, activeAccount, resource);
 
   const persistDemoState = (next: typeof demoState) => {
     setDemoState(next);
@@ -1185,13 +1188,19 @@ function App() {
 
   const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments.map((item) => experimentOverrides[item.id] ?? item)], [createdExperiments, experimentOverrides]);
   const importBatches = (demoState.importBatches ?? INITIAL_IMPORT_BATCHES) as ImportBatch[];
+  const canApprovePermissionRequest = (request: any) => {
+    if (!activeAccount || request.status !== "pending") return false;
+    if (request.scope === "experiment") return canApproveExperimentRequest(demoState, activeAccount, request, ledgerExperiments.find((item) => item.id === request.resourceId));
+    return activeAccount.role === "admin";
+  };
+  const pendingApprovalRequests = (demoState.requests ?? []).filter((request: any) => canApprovePermissionRequest(request));
 
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
     const sourcePlatformKeyword = filters.sourcePlatformKeyword.trim().toLowerCase();
     const ownerKeyword = filters.owner.trim().toLowerCase();
     return ledgerExperiments.filter((item) => {
-      if (!canAccessDomain(item)) return false;
+      if (!canList(item)) return false;
       const matchedKeyword = [item.id, item.name, item.owner, item.businessLine, item.coreMetric, item.trafficLayer]
         .join(" ")
         .toLowerCase()
@@ -1262,7 +1271,8 @@ function App() {
   const breadcrumbLabel = activeTab === "list" ? "实验清单" : activeLabel;
   const searchResults = useMemo(() => {
     const keyword = globalSearchKeyword.trim().toLowerCase();
-    const experimentResults = experiments
+    const experimentResults = ledgerExperiments
+      .filter((item) => canList(item))
       .filter((item) => !keyword || [item.id, item.name, item.owner, item.sourcePlatform, item.businessLine, item.trafficLayer].join(" ").toLowerCase().includes(keyword))
       .slice(0, 4)
       .map((item) => ({ type: "实验", title: item.name, meta: `${item.id} · ${item.owner} · ${item.sourcePlatform}`, action: () => openDetail(item) }));
@@ -1293,7 +1303,7 @@ function App() {
       .slice(0, 3)
       .map((platform) => ({ type: "来源平台", title: platform, meta: "点击后在实验清单筛选来源关键词", action: () => { updateFilter("sourcePlatformKeyword", platform); navigateToTab("list"); } }));
     return [...experimentResults, ...rolloutResults, ...relationResults, ...sourceResults].slice(0, 10);
-  }, [globalSearchKeyword, selectedSeed, investigationContext]);
+  }, [globalSearchKeyword, selectedSeed, investigationContext, ledgerExperiments, demoState, activeAccount]);
 
   const selectedCheckExperiment = experiments.find((item) => item.id === checkTarget.experimentId) ?? experiments[0];
   const activeValidationChecklist = validationChecklists.find((item) => item.experimentId === selectedCheckExperiment.id) ?? validationChecklists[0];
@@ -1779,6 +1789,7 @@ function App() {
   function updateExperimentLifecycle(record: ExperimentRecord, requestedAction = getExperimentStatusAction(record.status)) {
     const action = requestedAction;
     if (!action) return;
+    if (!can("experiment.edit", record)) return showToast("没有实验编辑权限");
     const now = new Date();
     const timestamp = now.toISOString().slice(0, 16).replace("T", " ");
     const nextStatus = action.next as ExperimentStatus;
@@ -1798,6 +1809,7 @@ function App() {
   }
 
   function deleteExperimentRecord(record: ExperimentRecord) {
+    if (!can("experiment.edit", record)) return showToast("没有实验编辑权限");
     if (!canDeleteExperiment(record.status)) return;
     if (!window.confirm(`确认删除“${record.name}”吗？此操作仅删除本机草稿或待上线记录。`)) return;
     if (createdExperiments.some((item) => item.id === record.id)) {
@@ -1872,9 +1884,12 @@ function App() {
   }
 
   function openPermissionRequest(scope: "experiment" | "metric" | "sampleSource", resource: any, defaultPermission?: string) {
-    const permissions = scope === "sampleSource"
-      ? ["sample.use"]
-      : [defaultPermission ?? `${scope}.view`];
+    const requestedPermission = defaultPermission ?? (scope === "metric" ? "metric.edit" : scope === "experiment" && canRequestExperiment("experiment.edit", resource) ? "experiment.edit" : "experiment.view");
+    if (scope === "experiment") {
+      if (!canRequestExperiment(requestedPermission, resource)) return showToast("当前角色不能申请该实验权限");
+    }
+    if (scope === "metric" && !canRequestMetricEditPermission(resource)) return showToast("当前角色不能申请指标编辑权限");
+    const permissions = scope === "sampleSource" ? ["sample.use"] : requestedPermission === "experiment.edit" ? ["experiment.view", "experiment.edit"] : [requestedPermission];
     setPermissionRequestDraft({
       scope,
       resourceId: resource.id,
@@ -1901,29 +1916,33 @@ function App() {
     if (!activeAccount) return;
     const requestedPermissions = permissionRequestDraft.permissions.filter(Boolean);
     if (!requestedPermissions.length) return showToast("请至少选择一项权限");
+    if (permissionRequestDraft.scope === "experiment" && requestedPermissions.some((permission) => !canRequestExperiment(permission, { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }))) return showToast("当前角色不能申请所选实验权限");
     if (!permissionRequestDraft.reason.trim()) return showToast("请填写申请理由");
     const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const experiment = permissionRequestDraft.scope === "experiment" ? ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId) : null;
+    const approver = experiment ? demoState.accounts.find((account: any) => account.name === experiment.owner && account.status === "active") : null;
     const existing = demoState.requests.find((request: any) => request.accountId === activeAccount.id && request.scope === permissionRequestDraft.scope && request.resourceId === permissionRequestDraft.resourceId && request.status === "pending");
     const existingPermissions = Array.isArray(existing?.permissions) ? existing.permissions : existing?.permission ? [existing.permission] : [];
     const requests = existing
-      ? demoState.requests.map((request: any) => request.id === existing.id ? { ...request, permissions: Array.from(new Set([...existingPermissions, ...requestedPermissions])), duration: permissionRequestDraft.duration, reason: permissionRequestDraft.reason, updatedAt: now } : request)
-      : [{ id: `REQ-${Date.now()}`, accountId: activeAccount.id, accountName: activeAccount.name, ...permissionRequestDraft, permissions: requestedPermissions, status: "pending", createdAt: now, decisionNote: "" }, ...demoState.requests];
+      ? demoState.requests.map((request: any) => request.id === existing.id ? { ...request, permissions: Array.from(new Set([...existingPermissions, ...requestedPermissions])), duration: permissionRequestDraft.duration, reason: permissionRequestDraft.reason, approverId: approver?.id ?? request.approverId ?? null, approverName: approver?.name ?? experiment?.owner ?? request.approverName ?? "管理员", updatedAt: now } : request)
+      : [{ id: `REQ-${Date.now()}`, accountId: activeAccount.id, accountName: activeAccount.name, ...permissionRequestDraft, permissions: requestedPermissions, approverId: approver?.id ?? null, approverName: approver?.name ?? experiment?.owner ?? "管理员", status: "pending", createdAt: now, decisionNote: "" }, ...demoState.requests];
     persistDemoState({ ...demoState, requests, audit: [{ id: `REQ-AUD-${Date.now()}`, time: now, actor: activeAccount.name, action: `${existing ? "更新" : "提交"}权限申请 ${requestedPermissions.join("、")}` }, ...demoState.audit] });
     closeTopmostDrawer();
     showToast(existing ? "已更新待审批权限申请" : "权限申请已提交");
   }
 
   function decidePermissionRequests(requestIds: string[], approved: boolean) {
-    if (!activeAccount || !can("access.approve") || !requestIds.length) return showToast("只有管理员可以审批");
+    if (!activeAccount || !requestIds.length) return showToast("请选择待审批申请");
     const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-    const selectedRequests = demoState.requests.filter((request: any) => requestIds.includes(request.id) && request.status === "pending");
-    if (!selectedRequests.length) return showToast("没有可处理的待审批申请");
+    const selectedRequests = demoState.requests.filter((request: any) => requestIds.includes(request.id) && canApprovePermissionRequest(request));
+    if (!selectedRequests.length) return showToast("没有可处理的负责人待审批申请");
+    const selectedRequestIdSet = new Set(selectedRequests.map((request: any) => request.id));
     const grants = approved
       ? [...selectedRequests.map((request: any, index: number) => ({ id: `GRANT-${Date.now()}-${index}`, accountId: request.accountId, scope: request.scope, resourceId: request.resourceId, permissions: request.permissions ?? (request.permission ? [request.permission] : []), expiresAt: new Date(Date.now() + Number(request.duration) * 86400000).toISOString().slice(0, 10) })), ...demoState.grants]
       : demoState.grants;
-    const requests = demoState.requests.map((request: any) => requestIds.includes(request.id) && request.status === "pending" ? { ...request, status: approved ? "approved" : "rejected", decidedAt: now, decisionNote: approved ? "已通过" : "已驳回" } : request);
+    const requests = demoState.requests.map((request: any) => selectedRequestIdSet.has(request.id) && request.status === "pending" ? { ...request, status: approved ? "approved" : "rejected", decidedAt: now, decisionNote: approved ? "已通过" : "已驳回" } : request);
     persistDemoState({ ...demoState, grants, requests, audit: [{ id: `REQ-AUD-${Date.now()}`, time: now, actor: activeAccount.name, action: `${approved ? "通过" : "驳回"} ${selectedRequests.length} 项权限申请` }, ...demoState.audit] });
-    setSelectedApprovalRequestIds((current) => current.filter((id) => !requestIds.includes(id)));
+    setSelectedApprovalRequestIds((current) => current.filter((id) => !selectedRequestIdSet.has(id)));
     showToast(approved ? "权限申请已通过" : "权限申请已驳回");
   }
 
@@ -1997,6 +2016,8 @@ function App() {
   function navigateToTab(nextTab: Tab, options: { replace?: boolean; context?: InvestigationContext | null } = {}) {
     const safeTab = adminTabs.has(nextTab) && roleView !== "admin" ? "list" : nextTab;
     const nextContext = options.context === undefined ? investigationContext : options.context;
+    setSelected(null);
+    setDetailTab("basic");
     syncContextPageFocus(safeTab, nextContext);
     setActiveTab(safeTab);
     setInvestigationContext(nextContext);
@@ -2348,7 +2369,7 @@ function App() {
           <div className="header-actions">
             <button className="circle-button message-center-trigger" type="button" aria-label="消息中心" title="消息中心" onClick={() => openMessageCenter("imports")}>
               <Bell size={17} />
-              {(activeAccount.role === "admin" ? demoState.requests.filter((request: any) => request.status === "pending").length : demoState.requests.filter((request: any) => request.accountId === activeAccount.id && request.status === "pending").length) ? <i aria-hidden="true" /> : null}
+              {pendingApprovalRequests.length ? <i aria-hidden="true" /> : null}
             </button>
             <button id="headerHelpButton" className="circle-button header-help-button" type="button" aria-label="帮助文档" title="帮助文档" onClick={() => openDrawer("help")}>
               <HelpCircle size={17} />
@@ -2562,7 +2583,7 @@ function App() {
               <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭消息中心" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button>
             </div>
             <div className="message-center-tabs" role="tablist" aria-label="消息中心分类">
-              {[{ id: "imports", label: "导入记录" }, { id: "requests", label: "我的申请" }, ...(activeAccount.role === "admin" ? [{ id: "approvals", label: `待审批 ${demoState.requests.filter((request: any) => request.status === "pending").length}` }] : [])].map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={messageTab === tab.id} className={messageTab === tab.id ? "active" : ""} onClick={() => setMessageTab(tab.id as typeof messageTab)}>{tab.label}</button>)}
+              {[{ id: "imports", label: "导入记录" }, { id: "requests", label: "我的申请" }, ...(pendingApprovalRequests.length || activeAccount.role === "admin" ? [{ id: "approvals", label: `待我审批 ${pendingApprovalRequests.length}` }] : [])].map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={messageTab === tab.id} className={messageTab === tab.id ? "active" : ""} onClick={() => setMessageTab(tab.id as typeof messageTab)}>{tab.label}</button>)}
             </div>
             {messageTab === "imports" ? <section className="message-center-panel" role="tabpanel">
               <div className="message-center-panel-head"><h3>批量导入记录</h3><span>{activeAccount.role === "admin" ? "全部批次" : "本人提交"}</span></div>
@@ -2574,10 +2595,10 @@ function App() {
               <div className="message-center-panel-head"><h3>我的申请</h3><span>授权状态会即时生效</span></div>
               <div className="access-request-list">{demoState.requests.filter((request: any) => request.accountId === activeAccount.id).map((request: any) => <div key={request.id}><strong>{request.resourceName ?? request.resourceId}</strong><span>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")} · {request.status === "pending" ? "待审批" : request.status === "approved" ? "已通过" : "已驳回"}</span><em>{request.createdAt} · {request.reason}</em></div>)}{!demoState.requests.some((request: any) => request.accountId === activeAccount.id) ? <p className="hint">暂无权限申请记录</p> : null}</div>
             </section> : null}
-            {messageTab === "approvals" && activeAccount.role === "admin" ? <section className="message-center-panel" role="tabpanel">
-              <div className="message-center-panel-head"><h3>待审批权限申请</h3><button className="primary-button" type="button" disabled={!selectedApprovalRequestIds.length} onClick={() => decidePermissionRequests(selectedApprovalRequestIds, true)}>一键通过</button></div>
-              <div className="table-wrap"><table className="data-table compact approval-table"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th><input type="checkbox" aria-label="选择全部待审批申请" checked={demoState.requests.filter((request: any) => request.status === "pending").length > 0 && selectedApprovalRequestIds.length === demoState.requests.filter((request: any) => request.status === "pending").length} onChange={(event) => setSelectedApprovalRequestIds(event.target.checked ? demoState.requests.filter((request: any) => request.status === "pending").map((request: any) => request.id) : [])} /></th><th>申请人 / 登录名</th><th>资源类型</th><th>资源名称</th><th>权限类型</th><th>操作</th></tr></thead><tbody>
-                {demoState.requests.filter((request: any) => request.status === "pending").map((request: any) => <tr key={request.id}><td><input type="checkbox" aria-label={`选择权限申请 ${request.id}`} checked={selectedApprovalRequestIds.includes(request.id)} onChange={() => setSelectedApprovalRequestIds((current) => current.includes(request.id) ? current.filter((id) => id !== request.id) : [...current, request.id])} /></td><td><strong>{request.accountName}</strong><span>{request.accountId}</span></td><td>{request.scope === "experiment" ? "实验" : request.scope === "metric" ? "指标" : "样本来源"}</td><td>{request.resourceName ?? request.resourceId}</td><td>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")}</td><td><div className="row-actions"><button type="button" onClick={() => decidePermissionRequests([request.id], true)}>通过</button><button type="button" className="ledger-delete-action" onClick={() => decidePermissionRequests([request.id], false)}>驳回</button></div></td></tr>)}
+            {messageTab === "approvals" ? <section className="message-center-panel" role="tabpanel">
+              <div className="message-center-panel-head"><h3>待我审批的权限申请</h3><button className="primary-button" type="button" disabled={!selectedApprovalRequestIds.length} onClick={() => decidePermissionRequests(selectedApprovalRequestIds, true)}>一键通过</button></div>
+              <div className="table-wrap"><table className="data-table compact approval-table"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th><input type="checkbox" aria-label="选择全部待审批申请" checked={pendingApprovalRequests.length > 0 && selectedApprovalRequestIds.length === pendingApprovalRequests.length} onChange={(event) => setSelectedApprovalRequestIds(event.target.checked ? pendingApprovalRequests.map((request: any) => request.id) : [])} /></th><th>申请人 / 登录名</th><th>资源类型</th><th>资源名称</th><th>权限类型</th><th>操作</th></tr></thead><tbody>
+                {pendingApprovalRequests.map((request: any) => <tr key={request.id}><td><input type="checkbox" aria-label={`选择权限申请 ${request.id}`} checked={selectedApprovalRequestIds.includes(request.id)} onChange={() => setSelectedApprovalRequestIds((current) => current.includes(request.id) ? current.filter((id) => id !== request.id) : [...current, request.id])} /></td><td><strong>{request.accountName}</strong><span>{request.accountId}</span></td><td>{request.scope === "experiment" ? "实验" : request.scope === "metric" ? "指标" : "样本来源"}</td><td>{request.resourceName ?? request.resourceId}</td><td>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")}</td><td><div className="row-actions"><button type="button" onClick={() => decidePermissionRequests([request.id], true)}>通过</button><button type="button" className="ledger-delete-action" onClick={() => decidePermissionRequests([request.id], false)}>驳回</button></div></td></tr>)}
               </tbody></table></div>
             </section> : null}
           </aside>
@@ -2589,7 +2610,7 @@ function App() {
           <aside ref={drawerRef} className="drawer permission-request-dialog" data-permission-request-dialog role="dialog" aria-modal="true" aria-labelledby="permission-request-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header"><div><span>资源权限</span><h2 id="permission-request-title">申请权限</h2></div><button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭权限申请" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button></div>
             <div className="permission-request-resource"><span>{permissionRequestDraft.scope === "experiment" ? "实验" : permissionRequestDraft.scope === "metric" ? "指标" : "样本来源"}</span><strong>{permissionRequestDraft.resourceName}</strong></div>
-            <div className="permission-request-options">{permissionRequestDraft.scope === "sampleSource" ? <label><input type="checkbox" checked readOnly />使用</label> : <><label><input type="checkbox" checked={permissionRequestDraft.permissions.includes(`${permissionRequestDraft.scope}.view`)} onChange={(event) => updatePermissionRequestPermission(`${permissionRequestDraft.scope}.view`, event.target.checked)} />查看</label><label><input type="checkbox" checked={permissionRequestDraft.permissions.includes(`${permissionRequestDraft.scope}.edit`)} onChange={(event) => updatePermissionRequestPermission(`${permissionRequestDraft.scope}.edit`, event.target.checked)} />编辑</label></>}</div>
+            <div className="permission-request-options">{permissionRequestDraft.scope === "sampleSource" ? <div className="permission-request-summary"><strong>申请使用权限</strong><span>获批后可在实验设计中使用该样本来源。</span></div> : permissionRequestDraft.scope === "metric" ? <div className="permission-request-summary"><strong>申请编辑权限</strong><span>查看权限已由业务域资格提供，获批后可维护该指标配置。</span></div> : <>{canRequestExperiment("experiment.view", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.view")} onChange={(event) => updatePermissionRequestPermission("experiment.view", event.target.checked)} />查看</label> : null}{canRequestExperiment("experiment.edit", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.edit")} onChange={(event) => updatePermissionRequestPermission("experiment.edit", event.target.checked)} />编辑</label> : null}</>}</div>
             <div className="form-grid"><label className="field vertical"><span>授权时效</span><select value={permissionRequestDraft.duration} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, duration: event.target.value }))}><option value="7">7 天</option><option value="30">30 天</option></select></label><label className="field vertical wide-field"><span>申请理由</span><textarea rows={3} value={permissionRequestDraft.reason} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, reason: event.target.value }))} /></label></div>
             <div className="drawer-actions"><button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button><button className="primary-button" type="button" onClick={submitPermissionRequest}>提交申请</button></div>
           </aside>
@@ -2962,7 +2983,7 @@ function App() {
                         {can("experiment.edit", item) ? <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button> : null}
                         {(item.status === "draft" || item.status === "pending") && can("experiment.edit", item) ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                         {can("experiment.lifecycle", item) ? getExperimentStatusActions(item.status).map((action) => <button type="button" key={action.next} data-experiment-lifecycle={`${item.status}-${action.next}`} onClick={() => updateExperimentLifecycle(item, action)}>{action.action}</button>) : null}
-                        {canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
+                        {can("experiment.edit", item) && canDeleteExperiment(item.status) ? <button type="button" className="ledger-delete-action" data-delete-experiment={item.id} onClick={() => deleteExperimentRecord(item)}>删除</button> : null}
                       </>}
                     </div>
                   </td>
@@ -3031,12 +3052,12 @@ function App() {
       if (!metricDraft.name?.trim() || !metricDraft.definition?.trim() || !metricDraft.sourceRef?.trim()) return showToast("请补齐指标名称、口径定义和数据来源");
       const updatedAt = new Date().toISOString().slice(0, 16).replace("T", " ");
       const { unit: _unit, denominator: _denominator, ...metricFields } = metricDraft;
-      const next = { ...metricFields, id: metricDraft.id || `MET-${String(Date.now()).slice(-5)}`, updatedAt, freshness: "新鲜", owner: metricDraft.owner || activeAccount.name, status: metricDraft.status || "active" };
+      const next = { ...metricFields, id: metricDraft.id || `MET-${String(Date.now()).slice(-5)}`, updatedAt, freshness: "新鲜", owner: metricDraft.owner || activeAccount.name, status: metricDraft.status || "active", editors: metricDraft.id ? metricDraft.editors ?? [] : Array.from(new Set([...(metricDraft.editors ?? []), activeAccount.id])) };
       const metrics = demoState.metrics as any[];
       persistDemoState({ ...demoState, metrics: metrics.some((metric) => metric.id === next.id) ? metrics.map((metric) => metric.id === next.id ? next : metric) : [next, ...metrics], audit: [{ id: `METRIC-${Date.now()}`, time: updatedAt, actor: activeAccount.name, action: `${metricDraft.id ? "更新" : "新增"}指标 ${next.name}` }, ...demoState.audit] });
       navigateToTab("metrics"); showToast("指标已保存");
     };
-    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div>}</Panel></section>;
+    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : canRequestMetricEditPermission(metricDraft) ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div> : null}</Panel></section>;
   }
 
   function renderEvaluation() {

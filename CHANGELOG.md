@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-23 - Owner-Approved Experiment Access (v0.6.9)
+
+Changed:
+
+- Split experiment permissions into business-domain eligibility and resource-level access: role permissions now determine list visibility and the maximum requestable permission, while resource-level grants determine experiment detail access, editing, copying, lifecycle actions, and draft/pending deletion.
+- Routed experiment access requests to each experiment's current owner. The message center now presents only requests the current owner may approve, and batch decisions are restricted to that same scope.
+- Preserved full business-domain metric view and use access; existing metrics require a resource-level edit grant, while users with metric-edit eligibility can request that grant through a compact edit-only request form.
+- Hardened mutation handlers so view-only experiment users cannot delete records, and refreshed the permission-request UI plus access and browser regression coverage.
+
 ## 2026-10-23 - Domain-Scoped Access and Message Center Polish (v0.6.8)
 
 Changed:

@@ -122,6 +122,24 @@ function activeGrant(state, accountId, scope, resourceId, permission) {
   return (state.grants ?? []).some((grant) => grant.accountId === accountId && grant.scope === scope && grant.resourceId === resourceId && grantAllows(grant, permission) && (!grant.expiresAt || grant.expiresAt >= today));
 }
 
+function activeRoles(state, account) {
+  return (state?.roles ?? []).filter((role) => role.status === "active" && (account?.roleIds ?? []).includes(role.id));
+}
+
+function hasAssignedPermission(state, account, permission, resource = {}) {
+  if (!account || account.status === "disabled") return false;
+  if (account.role === "admin") return true;
+  const domain = resource.domain ?? resource.businessLine;
+  return activeRoles(state, account).some((role) => (
+    (role.permissions ?? []).includes(permission) &&
+    (!domain || (role.domains ?? []).includes(domain))
+  ));
+}
+
+function isExperimentOwner(account, resource = {}) {
+  return Boolean(account && (resource.owner === account.name || (account.ownedExperimentIds ?? []).includes(resource.id)));
+}
+
 export function hasDomainAccess(state, account, resource = {}) {
   if (!account || account.status === "disabled") return false;
   if (account.role === "admin") return true;
@@ -134,29 +152,65 @@ export function hasDomainAccess(state, account, resource = {}) {
   ));
 }
 
+export function canListExperiment(state, account, resource = {}) {
+  if (!hasDomainAccess(state, account, resource)) return false;
+  return isExperimentOwner(account, resource)
+    || hasAssignedPermission(state, account, "experiment.view", resource)
+    || hasAssignedPermission(state, account, "experiment.edit", resource);
+}
+
+export function canRequestExperimentPermission(state, account, permission, resource = {}) {
+  if (!hasDomainAccess(state, account, resource)) return false;
+  if (permission === "experiment.edit") return hasAssignedPermission(state, account, "experiment.edit", resource);
+  if (permission === "experiment.view") {
+    return hasAssignedPermission(state, account, "experiment.view", resource)
+      || hasAssignedPermission(state, account, "experiment.edit", resource);
+  }
+  return false;
+}
+
+export function canRequestMetricEdit(state, account, resource = {}) {
+  return hasDomainAccess(state, account, resource)
+    && hasAssignedPermission(state, account, "metric.edit", resource)
+    && !canAccess(state, account, "metric.edit", resource);
+}
+
+export function canApproveExperimentRequest(state, account, request, experiment) {
+  return Boolean(
+    request?.scope === "experiment" &&
+    request?.status === "pending" &&
+    experiment &&
+    hasDomainAccess(state, account, experiment) &&
+    isExperimentOwner(account, experiment),
+  );
+}
+
 export function canAccess(state, account, permission, resource = {}) {
   if (!account || account.status === "disabled") return false;
-  if (account.role === "admin") return true;
-  const rolePermissions = (state?.roles ?? []).filter((role) => role.status === "active" && (account.roleIds ?? []).includes(role.id));
+  const rolePermissions = activeRoles(state, account);
   const assignedPermissions = rolePermissions.flatMap((role) => role.permissions ?? []);
-  const assignedDomains = new Set(rolePermissions.flatMap((role) => role.domains ?? []));
-  const hasRolePermission = assignedPermissions.includes(permission) && (!resource.domain && !resource.businessLine || assignedDomains.has(resource.domain ?? resource.businessLine));
+  const hasRolePermission = hasAssignedPermission(state, account, permission, resource);
   const domain = resource.domain ?? resource.businessLine;
   const id = resource.id;
   if (permission.startsWith("metric.")) {
     if (!hasDomainAccess(state, account, resource)) return false;
-    if (permission === "metric.edit" || permission === "metric.status" || permission === "metric.delete") return hasRolePermission || resource.editors?.includes(account.id) || activeGrant(state, account.id, "metric", id, permission);
+    if (permission === "metric.view") return true;
+    if (permission === "metric.edit") {
+      if (!id) return hasRolePermission;
+      return account.role === "admin" || resource.editors?.includes(account.id) || activeGrant(state, account.id, "metric", id, permission);
+    }
+    if (permission === "metric.status" || permission === "metric.delete") return account.role === "admin" || resource.editors?.includes(account.id) || activeGrant(state, account.id, "metric", id, permission) || activeGrant(state, account.id, "metric", id, "metric.edit");
     return hasRolePermission || resource.viewers?.includes(account.id) || resource.editors?.includes(account.id) || activeGrant(state, account.id, "metric", id, permission) || activeGrant(state, account.id, "domain", domain, permission);
   }
   if (permission === "sample.use") return hasRolePermission || resource.viewers?.includes(account.id) || activeGrant(state, account.id, "sampleSource", id, permission) || activeGrant(state, account.id, "domain", domain, permission);
   if (permission.startsWith("experiment.")) {
-    if (permission === "experiment.create") return assignedPermissions.includes(permission);
+    if (permission === "experiment.create") return account.role === "admin" || assignedPermissions.includes(permission);
     if (!hasDomainAccess(state, account, resource)) return false;
-    if (permission === "experiment.edit") return hasRolePermission || activeGrant(state, account.id, "experiment", id, permission);
-    if (permission === "experiment.lifecycle") return canAccess(state, account, "experiment.edit", resource) || hasRolePermission || activeGrant(state, account.id, "experiment", id, permission);
-    return hasRolePermission || activeGrant(state, account.id, "experiment", id, permission) || activeGrant(state, account.id, "domain", domain, permission);
+    if (permission === "experiment.edit") return isExperimentOwner(account, resource) || resource.editors?.includes(account.id) || activeGrant(state, account.id, "experiment", id, permission);
+    if (permission === "experiment.lifecycle") return canAccess(state, account, "experiment.edit", resource);
+    return isExperimentOwner(account, resource) || resource.viewers?.includes(account.id) || resource.editors?.includes(account.id) || activeGrant(state, account.id, "experiment", id, permission);
   }
-  if (permission === "import.submit" || permission === "monitor.view") return assignedPermissions.includes(permission);
+  if (permission === "import.submit" || permission === "monitor.view") return account.role === "admin" || assignedPermissions.includes(permission);
   if (permission === "access.approve") return account.role === "admin";
   return false;
 }
