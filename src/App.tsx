@@ -2250,7 +2250,7 @@ function App() {
     const account = getAccount(accountId, demoState);
     if (!account) return;
     persistDemoState({ ...demoState, sessionAccountId: account.id, audit: [{ id: `AUTH-${Date.now()}`, time: new Date().toISOString().slice(0, 16).replace("T", " "), actor: account.name, action: "登录测试账号" }, ...demoState.audit] });
-    navigateToTab("list", { replace: true, context: null });
+    navigateToTab("home", { replace: true, context: null });
   }
 
   function resetDemoData() {

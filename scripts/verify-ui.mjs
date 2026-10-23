@@ -89,6 +89,7 @@ check("role and people lists support searches and compact aligned permission cho
 check("full detail uses accessible tabs and limits investigation to experiment editors", includesAll(app, ['data-page-id="detail"', 'role="tablist"', 'role="tab"', 'aria-selected={detailTab === item.id}', '"基础信息"', '"父子实验"', '"放量历史"', '"校验快照"', 'can("experiment.edit", experiment) ? <button', 'data-start-investigation={experiment.id}', 'onKeyDown={selectAdjacentTab}', 'openDetailTab(currentExperiment, "validation")']) && includesAll(css, [".experiment-detail-page", ".detail-tabs", ".detail-summary-grid", ".detail-tab-panel"]));
 check("removed relationship and rollout routes fall back to the ledger", !/^\s*"lineage",/m.test(investigation) && !/^\s*"rollout",/m.test(investigation));
 check("home is the route fallback", includesAll(investigation, ['return { tab: "home", context: null };', 'return { tab: "home", context: stored, invalidHash: true, shouldPersist: false };']));
+check("test-account login opens the dashboard home", includesAll(app, ['function selectDemoAccount', 'navigateToTab("home", { replace: true, context: null })']));
 check("investigation keeps its interaction selectors while hiding the global context bar", includesAll(app, ["data-start-investigation", "data-evidence-focus", "data-relationship-node", "data-rollout-event"]) && !app.includes('data-investigation-status'));
 check("app and ordinary pages expose stable browser contracts", includesAll(app, [
   "data-active-page", "data-page-id=\"evaluate\"", "data-page-id=\"seed\"",
