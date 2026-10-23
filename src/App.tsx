@@ -71,7 +71,7 @@ import {
   validateAlertRule,
 } from "./monitoring.mjs";
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
-import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
+import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
@@ -1164,6 +1164,7 @@ function App() {
   const [metricDraft, setMetricDraft] = useState<any>(null);
   const [metricEditorMode, setMetricEditorMode] = useState<"view" | "edit" | "new" | null>(null);
   const [uploadedImport, setUploadedImport] = useState<{ fileName: string; rows: any[] } | null>(null);
+  const [isImportDragging, setIsImportDragging] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -1199,7 +1200,7 @@ function App() {
     const keyword = filters.keyword.trim().toLowerCase();
     const sourcePlatformKeyword = filters.sourcePlatformKeyword.trim().toLowerCase();
     const ownerKeyword = filters.owner.trim().toLowerCase();
-    return ledgerExperiments.filter((item) => {
+    const visibleExperiments = ledgerExperiments.filter((item) => {
       if (!canList(item)) return false;
       const matchedKeyword = [item.id, item.name, item.owner, item.businessLine, item.coreMetric, item.trafficLayer]
         .join(" ")
@@ -1221,6 +1222,7 @@ function App() {
         (!filters.editableOnly || can("experiment.edit", item))
       );
     });
+    return sortExperimentsByResourceAccess(demoState, activeAccount, visibleExperiments);
   }, [filters, ledgerExperiments, demoState, activeAccount]);
   const dashboardExperiments = useMemo(
     () => ledgerExperiments.filter((experiment) => can("experiment.edit", experiment)),
@@ -1486,6 +1488,10 @@ function App() {
   }
 
   function saveCreateProgress(step = createStep) {
+    if (!createDraft.basic.owner.trim()) {
+      showToast("请补充：负责人");
+      return false;
+    }
     const guardrailMetricIds = createDraft.basic.guardrailMetricIds.filter(Boolean);
     const guardrailMetric = (demoState.metrics as any[]).filter((metric) => guardrailMetricIds.includes(metric.id)).map((metric) => metric.name).join("、");
     const draft = { ...createDraft, savedStep: step, basic: { ...createDraft.basic, guardrailMetricIds, guardrailMetric }, sample: { ...createDraft.sample, guardrailCount: guardrailMetricIds.length } };
@@ -1743,16 +1749,22 @@ function App() {
       return;
     }
     const sourceDraft = createDraftFromExperimentRecord(record);
-    const draft = { ...sourceDraft, recordId: "", savedStep: "basic" as CreateStep, basic: { ...sourceDraft.basic, name: `${record.name}_copy`, owner: activeAccount?.name ?? "当前用户" } };
-    const copiedRecord = createLocalExperimentRecord(draft, "draft");
-    const persistedDraft = { ...draft, recordId: copiedRecord.id };
-    const nextRecord = { ...copiedRecord, createDraft: persistedDraft };
-    setCreatedExperiments((current) => {
-      const nextRecords = [nextRecord, ...current];
-      saveCreatedRecords(nextRecords);
-      return nextRecords;
-    });
-    showToast(`已复制为草稿：${persistedDraft.basic.name}`);
+    const defaults = createDefaultDraft();
+    const draft = {
+      ...defaults,
+      recordId: "",
+      savedStep: "basic" as CreateStep,
+      basic: {
+        ...defaults.basic,
+        ...sourceDraft.basic,
+        name: `${record.name}_copy`,
+        owner: activeAccount?.name ?? "当前用户",
+      },
+    };
+    clearCreateDraft();
+    setCreateDraft(draft);
+    navigateToCreateStep("basic");
+    showToast(`已带入复制信息：${draft.basic.name}`);
   }
 
   function completeCreateExperiment() {
@@ -1889,7 +1901,17 @@ function App() {
       if (!canRequestExperiment(requestedPermission, resource)) return showToast("当前角色不能申请该实验权限");
     }
     if (scope === "metric" && !canRequestMetricEditPermission(resource)) return showToast("当前角色不能申请指标编辑权限");
-    const permissions = scope === "sampleSource" ? ["sample.use"] : requestedPermission === "experiment.edit" ? ["experiment.view", "experiment.edit"] : [requestedPermission];
+    const isExperimentEditUpgrade = scope === "experiment"
+      && requestedPermission === "experiment.edit"
+      && can("experiment.view", resource)
+      && !can("experiment.edit", resource);
+    const permissions = scope === "sampleSource"
+      ? ["sample.use"]
+      : isExperimentEditUpgrade
+        ? ["experiment.edit"]
+        : requestedPermission === "experiment.edit"
+          ? ["experiment.view", "experiment.edit"]
+          : [requestedPermission];
     setPermissionRequestDraft({
       scope,
       resourceId: resource.id,
@@ -1938,7 +1960,7 @@ function App() {
     if (!selectedRequests.length) return showToast("没有可处理的负责人待审批申请");
     const selectedRequestIdSet = new Set(selectedRequests.map((request: any) => request.id));
     const grants = approved
-      ? [...selectedRequests.map((request: any, index: number) => ({ id: `GRANT-${Date.now()}-${index}`, accountId: request.accountId, scope: request.scope, resourceId: request.resourceId, permissions: request.permissions ?? (request.permission ? [request.permission] : []), expiresAt: new Date(Date.now() + Number(request.duration) * 86400000).toISOString().slice(0, 10) })), ...demoState.grants]
+      ? [...selectedRequests.map((request: any, index: number) => ({ id: `GRANT-${Date.now()}-${index}`, accountId: request.accountId, scope: request.scope, resourceId: request.resourceId, permissions: request.permissions ?? (request.permission ? [request.permission] : []), expiresAt: request.duration === "permanent" ? null : new Date(Date.now() + Number(request.duration) * 86400000).toISOString().slice(0, 10) })), ...demoState.grants]
       : demoState.grants;
     const requests = demoState.requests.map((request: any) => selectedRequestIdSet.has(request.id) && request.status === "pending" ? { ...request, status: approved ? "approved" : "rejected", decidedAt: now, decisionNote: approved ? "已通过" : "已驳回" } : request);
     persistDemoState({ ...demoState, grants, requests, audit: [{ id: `REQ-AUD-${Date.now()}`, time: now, actor: activeAccount.name, action: `${approved ? "通过" : "驳回"} ${selectedRequests.length} 项权限申请` }, ...demoState.audit] });
@@ -2535,9 +2557,24 @@ function App() {
             <section className="drawer-section">
               <h3>上传文件</h3>
               <input ref={uploadInputRef} className="sr-only" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => handleImportFile(event.target.files?.[0])} />
-              <div className="import-entry-layout">
-                <button className="import-template-tile" type="button" onClick={downloadImportTemplate} aria-label="下载实验台账模板"><Download size={26} aria-hidden="true" /><span>模板下载</span></button>
-                <button className="import-upload-zone" type="button" onClick={() => uploadInputRef.current?.click()}><Upload size={22} aria-hidden="true" /><strong>{uploadedImport?.fileName ?? "选择 .xlsx 文件"}</strong><span>{uploadedImport ? `已解析 ${uploadedImport.rows.length} 条记录，点击可重新上传` : "仅支持标准实验台账模板"}</span></button>
+                <div className="import-entry-layout">
+                <div
+                  className={`import-upload-zone${isImportDragging ? " dragging" : ""}`}
+                  data-import-upload-zone
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => uploadInputRef.current?.click()}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); uploadInputRef.current?.click(); } }}
+                  onDragEnter={(event) => { event.preventDefault(); setIsImportDragging(true); }}
+                  onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setIsImportDragging(true); }}
+                  onDragLeave={(event) => { event.preventDefault(); if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsImportDragging(false); }}
+                  onDrop={(event) => { event.preventDefault(); setIsImportDragging(false); handleImportFile(event.dataTransfer.files?.[0]); }}
+                >
+                  <Upload className="import-upload-icon" size={22} aria-hidden="true" />
+                  <strong className="import-upload-title">{uploadedImport?.fileName ?? "选择 .xlsx 文件"}</strong>
+                  <span className="import-upload-description">{uploadedImport ? `已解析 ${uploadedImport.rows.length} 条记录，点击可重新上传` : "仅支持标准实验台账模板，可拖拽文件至此处"}</span>
+                </div>
+                <button className="import-template-link" type="button" onClick={downloadImportTemplate}>模板下载</button>
               </div>
             </section>
             <section className="drawer-section">
@@ -2592,8 +2629,11 @@ function App() {
               </tbody></table></div>
             </section> : null}
             {messageTab === "requests" ? <section className="message-center-panel" role="tabpanel">
-              <div className="message-center-panel-head"><h3>我的申请</h3><span>授权状态会即时生效</span></div>
-              <div className="access-request-list">{demoState.requests.filter((request: any) => request.accountId === activeAccount.id).map((request: any) => <div key={request.id}><strong>{request.resourceName ?? request.resourceId}</strong><span>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")} · {request.status === "pending" ? "待审批" : request.status === "approved" ? "已通过" : "已驳回"}</span><em>{request.createdAt} · {request.reason}</em></div>)}{!demoState.requests.some((request: any) => request.accountId === activeAccount.id) ? <p className="hint">暂无权限申请记录</p> : null}</div>
+              <div className="message-center-panel-head"><h3>我的权限申请</h3><span>授权状态会即时生效</span></div>
+              <div className="table-wrap"><table className="data-table compact message-request-table"><colgroup><col /><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th>资源类型</th><th>资源名称</th><th>申请权限</th><th>申请时间</th><th>审批状态</th><th>审批人</th><th>申请理由</th></tr></thead><tbody>
+                {demoState.requests.filter((request: any) => request.accountId === activeAccount.id).map((request: any) => <tr key={request.id}><td>{request.scope === "experiment" ? "实验" : request.scope === "metric" ? "指标" : "样本来源"}</td><td title={request.resourceName ?? request.resourceId}><strong>{request.resourceName ?? request.resourceId}</strong></td><td>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")}</td><td>{request.createdAt}</td><td><span className={`request-status ${request.status}`}>{request.status === "pending" ? "待审批" : request.status === "approved" ? "已通过" : "已驳回"}</span></td><td>{request.approverName ?? "-"}</td><td title={request.reason}>{request.reason}</td></tr>)}
+                {!demoState.requests.some((request: any) => request.accountId === activeAccount.id) ? <tr className="message-empty-row"><td colSpan={7}>暂无权限申请记录</td></tr> : null}
+              </tbody></table></div>
             </section> : null}
             {messageTab === "approvals" ? <section className="message-center-panel" role="tabpanel">
               <div className="message-center-panel-head"><h3>待我审批的权限申请</h3><button className="primary-button" type="button" disabled={!selectedApprovalRequestIds.length} onClick={() => decidePermissionRequests(selectedApprovalRequestIds, true)}>一键通过</button></div>
@@ -2610,8 +2650,8 @@ function App() {
           <aside ref={drawerRef} className="drawer permission-request-dialog" data-permission-request-dialog role="dialog" aria-modal="true" aria-labelledby="permission-request-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
             <div className="drawer-header"><div><span>资源权限</span><h2 id="permission-request-title">申请权限</h2></div><button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭权限申请" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button></div>
             <div className="permission-request-resource"><span>{permissionRequestDraft.scope === "experiment" ? "实验" : permissionRequestDraft.scope === "metric" ? "指标" : "样本来源"}</span><strong>{permissionRequestDraft.resourceName}</strong></div>
-            <div className="permission-request-options">{permissionRequestDraft.scope === "sampleSource" ? <div className="permission-request-summary"><strong>申请使用权限</strong><span>获批后可在实验设计中使用该样本来源。</span></div> : permissionRequestDraft.scope === "metric" ? <div className="permission-request-summary"><strong>申请编辑权限</strong><span>查看权限已由业务域资格提供，获批后可维护该指标配置。</span></div> : <>{canRequestExperiment("experiment.view", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.view")} onChange={(event) => updatePermissionRequestPermission("experiment.view", event.target.checked)} />查看</label> : null}{canRequestExperiment("experiment.edit", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.edit")} onChange={(event) => updatePermissionRequestPermission("experiment.edit", event.target.checked)} />编辑</label> : null}</>}</div>
-            <div className="form-grid"><label className="field vertical"><span>授权时效</span><select value={permissionRequestDraft.duration} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, duration: event.target.value }))}><option value="7">7 天</option><option value="30">30 天</option></select></label><label className="field vertical wide-field"><span>申请理由</span><textarea rows={3} value={permissionRequestDraft.reason} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, reason: event.target.value }))} /></label></div>
+            <div className="permission-request-options">{permissionRequestDraft.scope === "sampleSource" ? <div className="permission-request-summary"><strong>申请使用权限</strong><span>获批后可在实验设计中使用该样本来源。</span></div> : permissionRequestDraft.scope === "metric" ? <div className="permission-request-summary"><strong>申请编辑权限</strong><span>查看权限已由业务域资格提供，获批后可维护该指标配置。</span></div> : permissionRequestDraft.permissions.length === 1 && permissionRequestDraft.permissions[0] === "experiment.edit" ? <div className="permission-request-summary"><strong>申请编辑权限</strong><span>您已拥有查看权限，获批后可编辑该实验。</span></div> : <>{canRequestExperiment("experiment.view", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.view")} onChange={(event) => updatePermissionRequestPermission("experiment.view", event.target.checked)} />查看</label> : null}{canRequestExperiment("experiment.edit", { id: permissionRequestDraft.resourceId, domain: ledgerExperiments.find((item) => item.id === permissionRequestDraft.resourceId)?.businessLine }) ? <label><input type="checkbox" checked={permissionRequestDraft.permissions.includes("experiment.edit")} onChange={(event) => updatePermissionRequestPermission("experiment.edit", event.target.checked)} />编辑</label> : null}</>}</div>
+            <div className="form-grid"><label className="field vertical"><span>授权时效</span><select value={permissionRequestDraft.duration} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, duration: event.target.value }))}><option value="7">7 天</option><option value="30">30 天</option><option value="permanent">永久</option></select></label><label className="field vertical wide-field"><span>申请理由</span><textarea rows={3} value={permissionRequestDraft.reason} onChange={(event) => setPermissionRequestDraft((current) => ({ ...current, reason: event.target.value }))} /></label></div>
             <div className="drawer-actions"><button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button><button className="primary-button" type="button" onClick={submitPermissionRequest}>提交申请</button></div>
           </aside>
         </div>
@@ -2980,6 +3020,7 @@ function App() {
                     <div className="row-actions">
                       {!permitted ? <button type="button" data-request-experiment={item.id} onClick={() => openPermissionRequest("experiment", item)}>申请</button> : <>
                         <button type="button" onClick={() => openDetail(item)}>查看详情</button>
+                        {!can("experiment.edit", item) && canRequestExperiment("experiment.edit", item) ? <button type="button" data-request-experiment-edit={item.id} onClick={() => openPermissionRequest("experiment", item, "experiment.edit")}>申请</button> : null}
                         {can("experiment.edit", item) ? <button type="button" data-duplicate-experiment={item.id} onClick={() => duplicateExperimentRecord(item)}>复制</button> : null}
                         {(item.status === "draft" || item.status === "pending") && can("experiment.edit", item) ? <button type="button" data-edit-create-draft onClick={() => editCreateDraft(item)}>编辑</button> : null}
                         {can("experiment.lifecycle", item) ? getExperimentStatusActions(item.status).map((action) => <button type="button" key={action.next} data-experiment-lifecycle={`${item.status}-${action.next}`} onClick={() => updateExperimentLifecycle(item, action)}>{action.action}</button>) : null}
@@ -3266,9 +3307,9 @@ function App() {
               </button>
             ))}
           </div>
-          <button type="button" className="primary-button detail-investigation-button" data-start-investigation={experiment.id} onClick={startDetailInvestigation}>
+          {can("experiment.edit", experiment) ? <button type="button" className="primary-button detail-investigation-button" data-start-investigation={experiment.id} onClick={startDetailInvestigation}>
             {investigationContext?.caseId && investigationContext.experimentId === experiment.id ? "继续排查" : "开始排查"}
-          </button>
+          </button> : null}
         </div>
 
         <div id={`detail-panel-${detailTab}`} className="detail-tab-panel" role="tabpanel" aria-labelledby={`detail-tab-${detailTab}`}>

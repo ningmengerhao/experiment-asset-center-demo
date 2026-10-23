@@ -215,6 +215,11 @@ export function canAccess(state, account, permission, resource = {}) {
   return false;
 }
 
+export function sortExperimentsByResourceAccess(state, account, experiments = []) {
+  const accessRank = (experiment) => canAccess(state, account, "experiment.edit", experiment) ? 0 : canAccess(state, account, "experiment.view", experiment) ? 1 : 2;
+  return [...experiments].sort((left, right) => accessRank(left) - accessRank(right));
+}
+
 export function validateSampleSql(sql) {
   const value = String(sql ?? "").trim();
   if (!value) return { valid: false, error: "请输入样本 SQL" };

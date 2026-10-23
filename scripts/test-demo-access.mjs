@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
+import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
 
 const state = createInitialDemoState();
 const admin = getAccount("admin.zhao", state);
@@ -41,6 +41,7 @@ const grantState = {
   grants: [
     { id: "GRANT-METRIC-EDIT", accountId: viewer.id, scope: "metric", resourceId: growthMetric.id, permissions: ["metric.edit"], expiresAt: "2026-12-31" },
     { id: "GRANT-EXPERIMENT-EDIT", accountId: viewer.id, scope: "experiment", resourceId: "EXP-240610-001", permissions: ["experiment.edit"], expiresAt: "2026-12-31" },
+    { id: "GRANT-EXPERIMENT-VIEW", accountId: viewer.id, scope: "experiment", resourceId: "EXP-VIEW", permissions: ["experiment.view"], expiresAt: "2026-12-31" },
   ],
 };
 assert.equal(canAccess(grantState, viewer, "metric.edit", growthMetric), true);
@@ -48,8 +49,15 @@ assert.equal(canAccess(grantState, viewer, "metric.view", growthMetric), true, "
 assert.equal(canAccess(grantState, viewer, "experiment.edit", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true);
 assert.equal(canAccess(grantState, viewer, "experiment.view", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true, "experiment edit grants must imply view access");
 assert.equal(canAccess(grantState, viewer, "experiment.lifecycle", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true, "editing must permit experiment status operations");
+assert.equal(canAccess({ ...state, grants: [{ id: "GRANT-PERMANENT", accountId: viewer.id, scope: "experiment", resourceId: "EXP-240610-001", permissions: ["experiment.edit"], expiresAt: null }] }, viewer, "experiment.edit", growthExperiment), true, "permanent grants without an expiry must remain active");
 assert.equal(canAccess({ ...grantState, grants: [{ id: "GRANT-HIDDEN", accountId: viewer.id, scope: "metric", resourceId: memberMetric.id, permissions: ["metric.edit"], expiresAt: "2026-12-31" }] }, viewer, "metric.view", memberMetric), false, "resource-level grants cannot reveal a hidden business domain");
 assert.equal(canAccess(state, viewer, "metric.view", growthMetric), true, "business-domain access grants metric viewing and use");
+const orderedExperiments = sortExperimentsByResourceAccess(grantState, viewer, [
+  { id: "EXP-REQUEST", domain: "增长", owner: "赵晨" },
+  { id: "EXP-240610-001", domain: "增长", owner: "赵晨" },
+  { id: "EXP-VIEW", domain: "增长", owner: "赵晨" },
+]);
+assert.deepEqual(orderedExperiments.map((experiment) => experiment.id), ["EXP-240610-001", "EXP-VIEW", "EXP-REQUEST"], "resource editors, viewers, and pending requests must sort by access priority");
 assert.equal(INITIAL_IMPORT_BATCHES.every((batch) => batch.status !== "待管理员审核"), true);
 
 const storage = new Map();

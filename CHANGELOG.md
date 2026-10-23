@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-23 - Copy Flow and Edit Upgrade Requests (v0.6.10)
+
+Changed:
+
+- Added an edit-upgrade request entry for users who already hold resource-level experiment view access and whose role permits an edit request; the request contains only `experiment.edit` and continues to route to the responsible owner.
+- Changed experiment copy into the direct-create wizard: basic information is prefilled with an `_copy` name and the current account as owner, while sample assessment, seed, and validation steps reset until the user saves or advances.
+- Blocked new-experiment draft saves without a responsible owner, added a permanent access duration that creates a grant without an expiry, and refined the batch-import upload zone into a wider, spaced three-line file picker with a text template link.
+
 ## 2026-10-23 - Owner-Approved Experiment Access (v0.6.9)
 
 Changed:

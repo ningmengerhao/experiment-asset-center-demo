@@ -2942,49 +2942,31 @@ textarea:focus {
 
 .import-entry-layout {
   display: grid;
-  grid-template-columns: 132px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
-  align-items: stretch;
+  justify-items: stretch;
 }
 
-.import-template-tile,
 .import-upload-zone {
   display: grid;
-  place-items: center;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  width: min(100%, 680px);
+  min-height: 156px;
+  margin: 0 auto;
+  padding: 22px;
+  border: 1px dashed #9db8e8;
   border-radius: 6px;
+  color: var(--text);
+  background: var(--bg);
+  cursor: pointer;
   text-align: center;
 }
 
-.import-template-tile {
-  gap: 8px;
-  min-height: 132px;
-  border: 1px dashed #67b8c2;
-  color: #128b95;
-  background: #fbfeff;
-}
-
-.import-template-tile:hover,
-.import-template-tile:focus-visible {
-  border-color: #168d99;
-  background: #f1fcfd;
-}
-
-.import-template-tile span {
-  font-size: 13px;
-}
-
-.import-upload-zone {
-  align-content: center;
-  gap: 6px;
-  min-height: 132px;
-  padding: 18px;
-  border: 1px dashed #9db8e8;
-  color: var(--text);
-  background: var(--bg);
-}
-
 .import-upload-zone:hover,
-.import-upload-zone:focus-visible {
+.import-upload-zone:focus-visible,
+.import-upload-zone.dragging {
   border-color: var(--primary);
   background: var(--primary-soft);
 }
@@ -2996,6 +2978,22 @@ textarea:focus {
 .import-upload-zone span {
   color: var(--text-3);
   font-size: 12px;
+}
+
+.import-template-link {
+  justify-self: center;
+  padding: 0;
+  border: 0;
+  color: var(--primary);
+  background: transparent;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.import-template-link:hover,
+.import-template-link:focus-visible {
+  color: var(--primary-hover);
+  text-decoration: underline;
 }
 
 .message-center-dialog {
@@ -3049,6 +3047,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 32px;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -3064,11 +3063,12 @@ textarea:focus {
 }
 
 .message-import-table,
+.message-request-table,
 .approval-table {
   width: 100%;
   min-width: 1000px;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .message-import-table col:nth-child(1) { width: 170px; }
@@ -3076,6 +3076,15 @@ textarea:focus {
 .message-import-table col:nth-child(3) { width: 270px; }
 .message-import-table col:nth-child(4) { width: 165px; }
 .message-import-table col:nth-child(5) { width: 145px; }
+
+.message-request-table { min-width: 1120px; }
+.message-request-table col:nth-child(1) { width: 110px; }
+.message-request-table col:nth-child(2) { width: 180px; }
+.message-request-table col:nth-child(3) { width: 135px; }
+.message-request-table col:nth-child(4) { width: 165px; }
+.message-request-table col:nth-child(5) { width: 115px; }
+.message-request-table col:nth-child(6) { width: 130px; }
+.message-request-table col:nth-child(7) { width: 285px; }
 
 .approval-table col:nth-child(1) { width: 42px; }
 .approval-table col:nth-child(2) { width: 190px; }
@@ -3086,6 +3095,8 @@ textarea:focus {
 
 .message-import-table th,
 .message-import-table td,
+.message-request-table th,
+.message-request-table td,
 .approval-table th,
 .approval-table td {
   overflow: hidden;
@@ -3093,8 +3104,23 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.message-import-table th,
+.message-request-table th,
+.approval-table th {
+  height: 44px;
+  font-size: 14px;
+}
+
+.message-import-table td,
+.message-request-table td,
+.approval-table td {
+  height: 58px;
+}
+
 .message-import-table td strong,
 .message-import-table td span,
+.message-request-table td strong,
+.message-request-table td span,
 .approval-table td strong,
 .approval-table td span {
   display: block;
@@ -3106,6 +3132,15 @@ textarea:focus {
 .message-import-table td strong,
 .message-import-table td span {
   font-size: 12px;
+}
+
+.request-status.pending { color: #ad6800; }
+.request-status.approved { color: #237804; }
+.request-status.rejected { color: var(--danger-text); }
+
+.message-empty-row td {
+  color: var(--text-3);
+  text-align: center;
 }
 
 .message-action-link,
@@ -3132,6 +3167,17 @@ textarea:focus {
 .approval-table td:first-child {
   width: 34px;
   min-width: 34px;
+}
+
+.approval-table input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.message-center-panel-head .primary-button:hover:not(:disabled) {
+  background: var(--primary);
 }
 
 .permission-request-resource {
@@ -4949,14 +4995,6 @@ textarea:focus {
   .home-rollout-list span,
   .home-rollout-list small {
     white-space: normal;
-  }
-
-  .import-entry-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .import-template-tile {
-    min-height: 88px;
   }
 
   .alternative-actions,

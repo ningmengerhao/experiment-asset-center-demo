@@ -17,6 +17,7 @@ export function canRequestExperimentPermission(state: any, account: DemoAccount 
 export function canRequestMetricEdit(state: any, account: DemoAccount | null, resource?: any): boolean;
 export function canApproveExperimentRequest(state: any, account: DemoAccount | null, request: any, experiment: any): boolean;
 export function canAccess(state: any, account: DemoAccount | null, permission: string, resource?: any): boolean;
+export function sortExperimentsByResourceAccess<T>(state: any, account: DemoAccount | null, experiments?: T[]): T[];
 export function validateSampleSql(sql: string): { valid: boolean; error: string };
 export function validateFilterCondition(condition: string): { valid: boolean; error: string };
 export function appendFilterCondition(sql: string, condition: string): string;
