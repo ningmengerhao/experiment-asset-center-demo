@@ -11,6 +11,7 @@ export function createInitialDemoState(): any;
 export function loadDemoState(storage?: Storage): any;
 export function saveDemoState(state: any, storage?: Storage): boolean;
 export function getAccount(accountId: string | null, state?: any): DemoAccount | null;
+export function hasDomainAccess(state: any, account: DemoAccount | null, resource?: any): boolean;
 export function canAccess(state: any, account: DemoAccount | null, permission: string, resource?: any): boolean;
 export function validateSampleSql(sql: string): { valid: boolean; error: string };
 export function validateFilterCondition(condition: string): { valid: boolean; error: string };

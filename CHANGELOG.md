@@ -2,6 +2,15 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-23 - Domain-Scoped Access and Message Center Polish (v0.6.8)
+
+Changed:
+
+- Made active-role business-domain access a mandatory first layer for experiment and metric visibility; resource grants, ownership, and resource-level permissions no longer reveal records outside an assigned domain.
+- Restricted experiment duplication, editing, and status changes to resource editors. The homepage and all its drill-downs now report only experiments the current user can edit, with an explicit list-scope indicator that Reset clears.
+- Unified experiment, metric, role, and person return controls as lightweight “返回” text actions.
+- Kept the message-center size stable across tabs, widened its desktop workspace, made import/approval tables fixed-column and locally scrollable, and changed failed-record downloads to text links.
+
 ## 2026-10-22 - Dashboard and Administration Polish (v0.6.7)
 
 Changed:

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, loadDemoState, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
+import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
 
 const state = createInitialDemoState();
 const admin = getAccount("admin.zhao", state);
@@ -15,7 +15,9 @@ assert.equal(INITIAL_METRICS.every((metric) => !("type" in metric)), true);
 assert.equal(canAccess(state, admin, "metric.edit", growthMetric), true);
 assert.equal(canAccess(state, fullEditor, "metric.edit", tradeMetric), true);
 assert.equal(canAccess(state, fullEditor, "metric.edit", memberMetric), true);
-assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240618-006", domain: "搜索", owner: "刘昕" }), true);
+assert.equal(hasDomainAccess(state, viewer, { domain: "增长" }), true);
+assert.equal(hasDomainAccess(state, viewer, { domain: "搜索" }), false);
+assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240618-006", domain: "搜索", owner: "刘昕" }), false, "resource grants and ownership cannot bypass domain visibility");
 assert.equal(canAccess(state, viewer, "experiment.view", { id: "EXP-240611-017", domain: "会员", owner: "陈露" }), false);
 assert.equal(canAccess(state, fullEditor, "experiment.edit", { id: "EXP-240610-001", businessLine: "增长", owner: "赵晨" }), true);
 assert.equal(canAccess(state, fullEditor, "access.approve"), false);
@@ -32,7 +34,8 @@ assert.equal(canAccess(grantState, viewer, "metric.edit", growthMetric), true);
 assert.equal(canAccess(grantState, viewer, "metric.view", growthMetric), true, "metric edit grants must imply view access");
 assert.equal(canAccess(grantState, viewer, "experiment.edit", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true);
 assert.equal(canAccess(grantState, viewer, "experiment.view", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true, "experiment edit grants must imply view access");
-assert.equal(canAccess(grantState, viewer, "experiment.lifecycle", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), false, "granted editing must not grant lifecycle control");
+assert.equal(canAccess(grantState, viewer, "experiment.lifecycle", { id: "EXP-240610-001", domain: "增长", owner: "赵晨" }), true, "editing must permit experiment status operations");
+assert.equal(canAccess({ ...grantState, grants: [{ id: "GRANT-HIDDEN", accountId: viewer.id, scope: "metric", resourceId: memberMetric.id, permissions: ["metric.edit"], expiresAt: "2026-12-31" }] }, viewer, "metric.view", memberMetric), false, "resource-level grants cannot reveal a hidden business domain");
 assert.equal(INITIAL_IMPORT_BATCHES.every((batch) => batch.status !== "待管理员审核"), true);
 
 const storage = new Map();
