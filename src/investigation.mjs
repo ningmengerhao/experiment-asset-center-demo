@@ -44,7 +44,7 @@ function decodeQuery(query) {
       const rawValue = separator === -1 ? "" : part.slice(separator + 1);
       const key = decodeURIComponent(rawKey.replace(/\+/g, " "));
       const value = decodeURIComponent(rawValue.replace(/\+/g, " "));
-      if (["experiment", "alert", "range", "focus"].includes(key)) params.set(key, value);
+      if (["experiment", "alert", "case", "range", "focus"].includes(key)) params.set(key, value);
     }
   } catch {
     return null;
@@ -104,6 +104,7 @@ export function parseInvestigationLocation(hash) {
 
   if (tab === "permission") tab = "roles";
   if (tab === "governance") tab = "home";
+  if (tab === "alert") tab = "investigate";
 
   if (!tabs.has(tab)) return fallbackLocation();
 
@@ -116,6 +117,8 @@ export function parseInvestigationLocation(hash) {
 
   const alertId = params.get("alert");
   if (alertId !== undefined && alertId !== "" && !isSafeIdentifier(alertId)) return fallbackLocation();
+  const caseId = params.get("case");
+  if (caseId !== undefined && caseId !== "" && !isSafeIdentifier(caseId)) return fallbackLocation();
 
   const range = params.get("range") ?? "14d";
   const focus = params.get("focus") ?? "overview";
@@ -124,7 +127,7 @@ export function parseInvestigationLocation(hash) {
   return {
     tab,
     context: {
-      caseId: "",
+      caseId: caseId ?? "",
       experimentId,
       ...(alertId ? { alertId } : {}),
       timeRange: range,
@@ -151,6 +154,7 @@ function isInvalidInvestigationHash(hash, parsed) {
   const query = separator === -1 ? "" : fragment.slice(separator + 1);
   if (tab === "permission") tab = "roles";
   if (tab === "governance") tab = "home";
+  if (tab === "alert") tab = "investigate";
   if (!tab || !tabs.has(tab)) return true;
 
   const params = decodeQuery(query);
@@ -172,6 +176,7 @@ function mergeStoredContextWithUrl(stored, urlContext, params) {
     if (urlContext.alertId) context.alertId = urlContext.alertId;
     else delete context.alertId;
   }
+  if (params.has("case")) context.caseId = urlContext.caseId;
   if (params.has("range")) context.timeRange = urlContext.timeRange;
   if (params.has("focus")) context.evidenceFocus = urlContext.evidenceFocus;
 
@@ -212,6 +217,7 @@ export function buildInvestigationHash(tab, context = null) {
   if (!context || !isSafeIdentifier(context.experimentId)) return `#${safeTab}`;
 
   const params = new URLSearchParams({ experiment: context.experimentId });
+  if (isSafeIdentifier(context.caseId)) params.set("case", context.caseId);
   if (isSafeIdentifier(context.alertId)) params.set("alert", context.alertId);
   if (timeRanges.has(context.timeRange)) params.set("range", context.timeRange);
   if (evidenceFocuses.has(context.evidenceFocus)) params.set("focus", context.evidenceFocus);

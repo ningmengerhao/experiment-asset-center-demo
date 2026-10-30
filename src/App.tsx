@@ -16,9 +16,9 @@ import {
   ListChecks,
   LayoutDashboard,
   Moon,
+  Pencil,
   PlayCircle,
   Plus,
-  Radar,
   RefreshCcw,
   Search,
   Settings,
@@ -64,14 +64,11 @@ import type { CreateExperimentDraft, CreateStep, GeneratedSeedConfig } from "./c
 import { getFocusTrapTarget, popDrawer, pushDrawer } from "./drawer.mjs";
 import type { DrawerName } from "./drawer.mjs";
 import { paginate } from "./pagination.mjs";
-import {
-  canManageRule,
-  rankAttributionCandidates,
-  transitionAlertRule,
-  validateAlertRule,
-} from "./monitoring.mjs";
+import { buildLayerDrilldowns, buildMissingCollaborationNotices, createCollaborationNotice, detectEffectInversion, findEffectInversionEvent, isCollaborationNoticeEligible, projectCandidateVerification, scanRunningExperiments } from "./anomaly-analysis.mjs";
+import type { AnalysisRange, AttributionCase, CandidateVerification, CollaborationNotice, EffectInversionEvent } from "./anomaly-analysis.mjs";
+import { canManageRule, rankAttributionCandidates, transitionAlertRule, validateAlertRule } from "./monitoring.mjs";
 import type { AlertRule, AttributionCandidate, RuleActor } from "./monitoring.mjs";
-import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
+import { ALL_DOMAINS, INITIAL_IMPORT_BATCHES, INITIAL_ROLES, ROLE_PERMISSION_OPTIONS, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, saveDemoState, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "./demo-access.mjs";
 import type { DemoAccount } from "./demo-access.mjs";
 
 type Tab =
@@ -116,13 +113,6 @@ type MetricFilters = { keyword: string; domain: string; status: string; owner: s
 type RoleFilters = { keyword: string; status: string };
 type PersonFilters = { keyword: string; role: string; roleId: string; status: string };
 type CreateSampleField = Exclude<keyof CreateExperimentDraft["sample"], "splitGroups">;
-type InvestigationStartOptions = {
-  alertId?: string;
-  focus?: EvidenceFocus;
-  entrySource?: InvestigationContext["entrySource"];
-  timeRange?: InvestigationContext["timeRange"];
-  tab?: Tab;
-};
 
 interface MetricConfig {
   metricType: string;
@@ -184,30 +174,9 @@ interface ValidationChecklist {
   items: Array<{ name: string; status: QualityStatus; detail: string; evidence: string }>;
 }
 
-interface MonitorAlert {
-  id: string;
-  experimentId: string;
-  type: string;
-  severity: AlertSeverity;
-  metric: string;
-  evidence: string;
-  suggestedAction: string;
-  owner: string;
-  updatedAt: string;
-}
-
-interface AlertRuleRecord extends AlertRule {
-  category: string;
-  scope: string;
-  recipients: string[];
-  lastHit: string;
-}
-
-interface AttributionCandidateRecord extends AttributionCandidate {
-  name: string;
-  rolloutChange: string;
-  riskReason: string;
-}
+interface MonitorAlert { id: string; experimentId: string; type: string; severity: AlertSeverity; metric: string; evidence: string; suggestedAction: string; owner: string; updatedAt: string }
+interface AlertRuleRecord extends AlertRule { category: string; scope: string; recipients: string[]; lastHit: string }
+interface AttributionCandidateRecord extends AttributionCandidate { name: string; rolloutChange: string; riskReason: string }
 
 interface PermissionProfile {
   id: PermissionRoleId;
@@ -301,6 +270,7 @@ interface ExperimentRecord {
   startTime: string;
   lastUpdated: string;
   coreMetric: string;
+  expectedDirection?: "up" | "down";
   guardrailMetric: string;
   stageStatus: ExperimentStage;
   metricConfig: MetricConfig;
@@ -333,6 +303,7 @@ const experiments: ExperimentRecord[] = [
     startTime: "2026-06-10 10:00",
     lastUpdated: "2026-06-25 10:30",
     coreMetric: "首购转化率",
+    expectedDirection: "up",
     guardrailMetric: "投诉率",
     stageStatus: "运行中",
     metricConfig: { metricType: "转化率", baseline: 8.2, mde: 0.35, confidence: 95, power: 80, dailyTraffic: 180000 },
@@ -374,6 +345,7 @@ const experiments: ExperimentRecord[] = [
     startTime: "2026-06-11 14:00",
     lastUpdated: "2026-06-24 18:12",
     coreMetric: "会员开通率",
+    expectedDirection: "up",
     guardrailMetric: "退订率",
     stageStatus: "运行中",
     metricConfig: { metricType: "转化率", baseline: 6.4, mde: 0.28, confidence: 95, power: 80, dailyTraffic: 96000 },
@@ -414,6 +386,7 @@ const experiments: ExperimentRecord[] = [
     startTime: "2026-06-12 09:30",
     lastUpdated: "2026-06-23 09:00",
     coreMetric: "入口点击率",
+    expectedDirection: "up",
     guardrailMetric: "停留时长",
     stageStatus: "上线前",
     metricConfig: { metricType: "点击率", baseline: 12.6, mde: 0.5, confidence: 95, power: 80, dailyTraffic: 140000 },
@@ -450,21 +423,22 @@ const experiments: ExperimentRecord[] = [
     userGroup: "支付页访问用户",
     rollout: 35,
     status: "running",
-    quality: "warning",
+    quality: "critical",
     startTime: "2026-06-15 18:00",
     lastUpdated: "2026-06-22 17:25",
     coreMetric: "支付成功率",
+    expectedDirection: "up",
     guardrailMetric: "优惠成本",
     stageStatus: "追溯复盘",
     metricConfig: { metricType: "转化率", baseline: 18.4, mde: 0.42, confidence: 95, power: 80, dailyTraffic: 76000 },
     sampleDefinition: { domain: "交易", source: "离线人群包", window: "近 14 天", unit: "订单" },
     reviewSummary: {
-      conclusion: "手动补录记录可用于排查，但上线前校验和来源链接需要补齐。",
-      tags: ["交易", "手动补录", "成本护栏"],
+      conclusion: "支付成功率在放量后出现连续负向变化，已纳入异常排查。",
+      tags: ["交易", "异常排查", "核心指标倒挂"],
       similarExperiments: ["EXP-231025-019", "EXP-240301-004"],
-      nextAction: "补齐源系统链接并重新提交导入审核。",
+      nextAction: "从详情页开始异常排查，并复核关联实验的交叉信号。",
     },
-    alertStatus: "warning",
+    alertStatus: "critical",
     rolloutEvents: [
       { time: "2026-06-15 18:00", type: "启动", from: "0%", to: "10%", operator: "吴雅", reason: "补录历史记录", sourcePlatform: "手动补录" },
       { time: "2026-06-19 10:00", type: "放量", from: "10%", to: "35%", operator: "吴雅", reason: "业务侧确认继续观察", sourcePlatform: "手动补录" },
@@ -494,6 +468,7 @@ const experiments: ExperimentRecord[] = [
     startTime: "2026-06-18 12:20",
     lastUpdated: "2026-06-25 08:14",
     coreMetric: "二次搜索率",
+    expectedDirection: "up",
     guardrailMetric: "退出率",
     stageStatus: "追溯复盘",
     metricConfig: { metricType: "转化率", baseline: 22.1, mde: 0.6, confidence: 95, power: 90, dailyTraffic: 120000 },
@@ -520,6 +495,98 @@ const experiments: ExperimentRecord[] = [
   },
 ];
 
+// Local demonstration records owned by 赵晨. They cover critical, warning, and
+// no-inversion paths without modifying the historical seed experiments above.
+experiments.push(
+  {
+    ...experiments[0],
+    id: "EXP-260901-101",
+    name: "新客首屏权益提醒",
+    businessLine: "增长",
+    sourcePlatform: "增长实验平台",
+    owner: "赵晨",
+    relationship: "独立实验",
+    parentExperiment: "-",
+    trafficLayer: "growth_benefit_banner",
+    userGroup: "新注册用户",
+    rollout: 45,
+    status: "running",
+    quality: "critical",
+    startTime: "2026-09-01 09:00",
+    lastUpdated: "2026-10-28 17:10",
+    coreMetric: "首购转化率",
+    expectedDirection: "up",
+    guardrailMetric: "投诉率",
+    stageStatus: "运行中",
+    metricConfig: { metricType: "转化率", baseline: 8.2, mde: 0.3, confidence: 95, power: 80, dailyTraffic: 150000 },
+    sampleDefinition: { domain: "增长", source: "增长用户行为日表", window: "近 14 天", unit: "用户" },
+    reviewSummary: { conclusion: "放量后核心指标出现连续负向变化，建议立即完成异常排查。", tags: ["异常演示", "核心指标倒挂", "高优先级"], similarExperiments: ["EXP-240610-001"], nextAction: "从详情页开始异常排查，并联系高置信候选负责人。" },
+    alertStatus: "critical",
+    rolloutEvents: [{ time: "2026-09-01 09:00", type: "启动", from: "0%", to: "10%", operator: "赵晨", reason: "新客权益灰度", sourcePlatform: "增长实验平台" }, { time: "2026-10-20 10:00", type: "放量", from: "10%", to: "45%", operator: "赵晨", reason: "扩大观察样本", sourcePlatform: "增长实验平台" }],
+    sourceQuality: "平台自动同步，指标序列完整，已标记异常演示数据",
+    checkSnapshot: { target: "当前实验", preAA: "p=0.4120 通过", uniformity: "偏差 0.23% 通过", orthogonality: "p=0.0810 观察", sampleScope: "增长 · 增长用户行为日表 · 近 14 天 · 用户", updatedAt: "2026-10-28 17:10" },
+    auditEvents: [{ time: "2026-10-28 17:10", operator: "赵晨", action: "识别到核心指标连续负向变化" }, { time: "2026-10-20 10:00", operator: "赵晨", action: "放量从 10% 调整到 45%" }],
+  },
+  {
+    ...experiments[0],
+    id: "EXP-260902-102",
+    name: "支付页首单优惠文案",
+    businessLine: "交易",
+    sourcePlatform: "交易实验平台",
+    owner: "赵晨",
+    relationship: "关联实验",
+    parentExperiment: "EXP-260901-101",
+    trafficLayer: "trade_first_order_coupon",
+    userGroup: "首单支付用户",
+    rollout: 30,
+    status: "running",
+    quality: "warning",
+    startTime: "2026-09-02 14:30",
+    lastUpdated: "2026-10-28 16:40",
+    coreMetric: "支付成功率",
+    expectedDirection: "up",
+    guardrailMetric: "优惠成本",
+    stageStatus: "运行中",
+    metricConfig: { metricType: "转化率", baseline: 18.4, mde: 0.42, confidence: 95, power: 80, dailyTraffic: 82000 },
+    sampleDefinition: { domain: "交易", source: "交易订单日表", window: "近 14 天", unit: "订单" },
+    reviewSummary: { conclusion: "支付成功率在放量后出现显著负向变化，需排查入口链路与并行实验影响。", tags: ["异常演示", "待核验", "支付链路"], similarExperiments: ["EXP-240615-022"], nextAction: "对比放量时间、样本重叠和指标同步变化。" },
+    alertStatus: "warning",
+    rolloutEvents: [{ time: "2026-09-02 14:30", type: "启动", from: "0%", to: "10%", operator: "赵晨", reason: "支付页文案灰度", sourcePlatform: "交易实验平台" }, { time: "2026-10-21 11:00", type: "放量", from: "10%", to: "30%", operator: "赵晨", reason: "补充观察样本", sourcePlatform: "交易实验平台" }],
+    sourceQuality: "平台自动同步，放量和指标时间线完整",
+    checkSnapshot: { target: "当前实验", preAA: "p=0.2290 通过", uniformity: "偏差 0.36% 通过", orthogonality: "p=0.0730 观察", sampleScope: "交易 · 交易订单日表 · 近 14 天 · 订单", updatedAt: "2026-10-28 16:40" },
+    auditEvents: [{ time: "2026-10-28 16:40", operator: "赵晨", action: "登记支付成功率倒挂待核验" }, { time: "2026-10-21 11:00", operator: "赵晨", action: "放量从 10% 调整到 30%" }],
+  },
+  {
+    ...experiments[0],
+    id: "EXP-260903-103",
+    name: "注册完成页礼包引导",
+    businessLine: "增长",
+    sourcePlatform: "增长实验平台",
+    owner: "赵晨",
+    relationship: "独立实验",
+    parentExperiment: "-",
+    trafficLayer: "signup_reward_guide",
+    userGroup: "完成注册用户",
+    rollout: 20,
+    status: "running",
+    quality: "warning",
+    startTime: "2026-09-03 10:20",
+    lastUpdated: "2026-10-28 15:20",
+    coreMetric: "礼包领取率",
+    expectedDirection: "up",
+    guardrailMetric: "投诉率",
+    stageStatus: "运行中",
+    metricConfig: { metricType: "转化率", baseline: 11.6, mde: 0.38, confidence: 95, power: 80, dailyTraffic: 91000 },
+    sampleDefinition: { domain: "增长", source: "增长用户行为日表", window: "近 14 天", unit: "用户" },
+    reviewSummary: { conclusion: "当前仅存在质量预警，近 14 天尚未满足效果倒挂判定，可用于演示无异常结果。", tags: ["异常演示", "空状态演示", "待观察"], similarExperiments: ["EXP-240610-001"], nextAction: "继续观察后再发起异常排查。" },
+    alertStatus: "warning",
+    rolloutEvents: [{ time: "2026-09-03 10:20", type: "启动", from: "0%", to: "5%", operator: "赵晨", reason: "礼包引导小流量验证", sourcePlatform: "增长实验平台" }, { time: "2026-10-22 09:30", type: "放量", from: "5%", to: "20%", operator: "赵晨", reason: "样本量补充", sourcePlatform: "增长实验平台" }],
+    sourceQuality: "平台自动同步，质量预警来自待补充的分层数据",
+    checkSnapshot: { target: "当前实验", preAA: "p=0.3410 通过", uniformity: "偏差 0.48% 通过", orthogonality: "p=0.0920 通过", sampleScope: "增长 · 增长用户行为日表 · 近 14 天 · 用户", updatedAt: "2026-10-28 15:20" },
+    auditEvents: [{ time: "2026-10-28 15:20", operator: "赵晨", action: "补充质量预警与观察结论" }, { time: "2026-10-22 09:30", operator: "赵晨", action: "放量从 5% 调整到 20%" }],
+  },
+);
+
 const navGroups: Array<{
   title: string;
   role: RoleView | "all";
@@ -529,7 +596,7 @@ const navGroups: Array<{
     title: "总览",
     role: "all",
     items: [
-      { key: "home", label: "首页", icon: LayoutDashboard },
+      { key: "home", label: "实验总览", icon: LayoutDashboard },
     ],
   },
   {
@@ -547,13 +614,6 @@ const navGroups: Array<{
     ],
   },
   {
-    title: "运行中",
-    role: "all",
-    items: [
-      { key: "investigate", label: "监控排查", icon: Radar },
-    ],
-  },
-  {
     title: "权限配置",
     role: "admin",
     items: [
@@ -563,7 +623,7 @@ const navGroups: Array<{
   },
 ];
 
-const allTabs: Tab[] = ["create", ...navGroups.flatMap((group) => group.items.map((item) => item.key))];
+const allTabs: Tab[] = ["create", "investigate", ...navGroups.flatMap((group) => group.items.map((item) => item.key))];
 const adminTabs = new Set<Tab>(["roles", "people"]);
 const defaultLedgerFilters: LedgerFilters = {
   keyword: "",
@@ -582,7 +642,7 @@ const stageTargets: Array<{ tab: Tab; label: string }> = [
   { tab: "evaluate", label: "实验前评估" },
   { tab: "seed", label: "分流方案" },
   { tab: "check", label: "上线前检查" },
-  { tab: "investigate", label: "运行中监控排查" },
+  { tab: "investigate", label: "异常排查" },
   { tab: "list", label: "追溯复盘" },
 ];
 const stageByTab: Record<Tab, Tab> = {
@@ -737,68 +797,9 @@ const validationChecklists: ValidationChecklist[] = [
   },
 ];
 
-const monitorAlerts: MonitorAlert[] = [
-  { id: "ALT-001", experimentId: "EXP-240611-017", type: "倒挂定位", severity: "warning", metric: "会员开通率", evidence: "父实验 06-20 放量后，子实验核心指标连续 2 天低于对照组。", suggestedAction: "查看父子关系和放量窗口，复跑正交性检查。", owner: "陈露", updatedAt: "2026-06-24 18:12" },
-  { id: "ALT-002", experimentId: "EXP-240612-008", type: "交叉实验影响", severity: "critical", metric: "入口点击率", evidence: "rec_home 与 search_empty 交叉用户池重叠，规则冲突检查未通过。", suggestedAction: "暂停放量，联系搜索实验负责人确认互斥策略。", owner: "周一帆", updatedAt: "2026-06-23 09:00" },
-  { id: "ALT-003", experimentId: "EXP-240615-022", type: "样本比例异常", severity: "warning", metric: "优惠成本", evidence: "手动补录放量 10% -> 35%，来源链接缺失，成本护栏抬升。", suggestedAction: "补齐来源记录并在上线前检查中重新确认样本口径。", owner: "吴雅", updatedAt: "2026-06-22 17:25" },
-];
-
-const initialAlertRules: AlertRuleRecord[] = [
-  {
-    id: "RULE-001",
-    name: "样本比例持续失衡",
-    experimentId: "EXP-240610-001",
-    owner: "赵晨",
-    metric: "A/B 样本比例偏差",
-    category: "样本",
-    operator: ">",
-    threshold: 1.5,
-    consecutiveWindows: 2,
-    severity: "critical",
-    scope: "当前实验 · 全部分组",
-    recipients: ["赵晨", "实验告警群"],
-    status: "enabled",
-    version: 4,
-    lastHit: "2026-06-24 09:30",
-    audit: [{ id: "AUD-R1", actor: "赵晨", action: "调整阈值", note: "1.0% 调整为 1.5%", occurredAt: "2026-06-20 17:15" }],
-  },
-  {
-    id: "RULE-002",
-    name: "成本护栏抬升",
-    experimentId: "EXP-240615-022",
-    owner: "吴雅",
-    metric: "优惠成本变化率",
-    category: "护栏",
-    operator: ">",
-    threshold: 8,
-    consecutiveWindows: 1,
-    severity: "warning",
-    scope: "交易业务域 · 运行中实验",
-    recipients: ["吴雅", "交易实验群"],
-    status: "enabled",
-    version: 2,
-    lastHit: "2026-06-22 17:25",
-    audit: [{ id: "AUD-R2", actor: "赵晨", action: "启用规则", note: "管理员按模板创建", occurredAt: "2026-06-18 11:20" }],
-  },
-  {
-    id: "RULE-003",
-    name: "核心指标连续倒挂",
-    experimentId: "EXP-240611-017",
-    owner: "陈露",
-    metric: "会员开通率",
-    category: "主指标",
-    operator: "<",
-    threshold: -3,
-    consecutiveWindows: 2,
-    severity: "warning",
-    scope: "当前实验 · 对照组比较",
-    recipients: ["陈露"],
-    status: "disabled",
-    version: 5,
-    lastHit: "2026-06-24 18:12",
-    audit: [{ id: "AUD-R3", actor: "陈露", action: "停用规则", note: "等待父实验放量窗口结束", occurredAt: "2026-06-25 09:10" }],
-  },
-];
+// Kept only for legacy deep-link compatibility while the visible workbench is case-based.
+const monitorAlerts: MonitorAlert[] = [{ id: "ALT-LEGACY", experimentId: "EXP-240611-017", type: "效果倒挂", severity: "warning", metric: "会员开通率", evidence: "旧告警链接将归一至异常排查。", suggestedAction: "开始异常排查", owner: "陈露", updatedAt: "2026-06-24 18:12" }];
+const initialAlertRules: AlertRuleRecord[] = [{ id: "RULE-LEGACY", name: "旧规则", experimentId: "EXP-240611-017", owner: "陈露", metric: "会员开通率", category: "旧版", operator: "<", threshold: -1, consecutiveWindows: 2, severity: "warning", scope: "旧版兼容", recipients: ["陈露"], status: "disabled", version: 1, lastHit: "-", audit: [] }];
 
 const initialPermissionProfiles: PermissionProfile[] = [
   { id: "admin", name: "管理员", description: "维护角色、规则模板与审计策略", modules: ["全部模块"], actions: ["查看", "编辑", "审核", "授权"], visibility: "全部业务域与实验", responsibleOwner: "赵晨", backupOwner: "李维", ruleThresholdRange: "可维护模板上下限" },
@@ -849,20 +850,19 @@ function buildEvidenceTimeline(context: InvestigationContext | null): EvidenceEv
     warning: "warning",
     critical: "critical",
   };
-  const alertEvents = monitorAlerts
-    .filter((alert) => alert.experimentId === experiment.id && (!context.alertId || alert.id === context.alertId))
-    .map((alert) => ({
-      id: `alert-${alert.id}`,
-      experimentId: experiment.id,
-      occurredAt: alert.updatedAt,
-      type: "alert" as const,
-      title: alert.type,
-      summary: alert.evidence,
-      sourcePlatform: experiment.sourcePlatform,
-      operator: alert.owner,
-      severity: alert.severity,
-      requiresAction: alert.severity !== "info",
-    }));
+  const inversionEvent = findEffectInversionEvent(experiment.id, context.timeRange as AnalysisRange);
+  const inversionEvents = inversionEvent ? [{
+    id: `inversion-${inversionEvent.id}`,
+    experimentId: experiment.id,
+    occurredAt: inversionEvent.detectedAt,
+    type: "alert" as const,
+    title: "效果倒挂检测",
+    summary: `实际效果 ${inversionEvent.actualEffect}pp，显著性 p=${inversionEvent.pValue.toFixed(3)}。`,
+    sourcePlatform: "本地分析服务",
+    operator: experiment.owner,
+    severity: "warning" as const,
+    requiresAction: true,
+  }] : [];
   const rolloutEvents = experiment.rolloutEvents.map((event, index) => ({
     id: `rollout-${experiment.id}-${index}`,
     experimentId: experiment.id,
@@ -904,7 +904,7 @@ function buildEvidenceTimeline(context: InvestigationContext | null): EvidenceEv
         requiresAction: item.status !== "passed",
       }))
     : [];
-  return mergeEvidenceEvents([...alertEvents, ...rolloutEvents, ...relationshipEvents, ...validationEvents]);
+  return mergeEvidenceEvents([...inversionEvents, ...rolloutEvents, ...relationshipEvents, ...validationEvents]);
 }
 
 function enrichDirectInvestigationOwner(context: InvestigationContext | null) {
@@ -956,13 +956,13 @@ function scoreSeed(seed: string) {
 
 const importTemplateHeaders = ["实验 ID", "实验名称", "业务域", "负责人", "来源平台", "父实验 ID", "放量比例"];
 
-function runImportPrecheck(rows: any[], existingExperiments: Array<{ id: string }> = experiments) {
+function runImportPrecheck(rows: any[], existingExperiments: Array<{ id: string }> = experiments, businessDomains = ALL_DOMAINS) {
   const knownIds = new Set(existingExperiments.map((item) => item.id));
   return rows.map((row) => {
     const issues = [
       row.experimentId ? "" : "实验 ID 缺失",
       row.name ? "" : "实验名称缺失",
-      ALL_DOMAINS.includes(row.businessLine) ? "" : "业务域无效",
+      businessDomains.includes(row.businessLine) ? "" : "业务域无效",
       row.owner ? "" : "负责人缺失",
       row.platform ? "" : "来源平台缺失",
       Number.isFinite(row.rollout) && row.rollout >= 0 && row.rollout <= 100 ? "" : "放量比例异常",
@@ -1098,6 +1098,7 @@ function App() {
   const [detailTab, setDetailTab] = useState<DetailTab>("basic");
   const [commandOpen, setCommandOpen] = useState(false);
   const [globalSearchKeyword, setGlobalSearchKeyword] = useState("");
+  const globalSearchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const toastTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [filters, setFilters] = useState<LedgerFilters>(defaultLedgerFilters);
@@ -1113,7 +1114,6 @@ function App() {
   const [createStep, setCreateStep] = useState<CreateStep>(() => readCreateStep(typeof window === "undefined" ? "" : window.location.hash));
   const [createSampleExpanded, setCreateSampleExpanded] = useState(false);
   const [createdExperiments, setCreatedExperiments] = useState<ExperimentRecord[]>(() => loadCreatedRecords() as ExperimentRecord[]);
-  const [experimentOverrides, setExperimentOverrides] = useState<Record<string, ExperimentRecord>>({});
   const [seedInputMode, setSeedInputMode] = useState<SeedInputMode>("manual");
   const [seedBase, setSeedBase] = useState("onboarding_core");
   const [seedManualList, setSeedManualList] = useState("member-copy-v2\nsearch_empty_safe\npay_coupon_holdout");
@@ -1135,16 +1135,19 @@ function App() {
   const [helpDrawer, setHelpDrawer] = useState(false);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [messageCenterOpen, setMessageCenterOpen] = useState(false);
-  const [messageTab, setMessageTab] = useState<"imports" | "requests" | "approvals">("imports");
+  const [messageTab, setMessageTab] = useState<"imports" | "requests" | "notifications" | "approvals">("imports");
   const [permissionRequestOpen, setPermissionRequestOpen] = useState(false);
   const [permissionRequestDraft, setPermissionRequestDraft] = useState({ scope: "experiment", resourceId: "", resourceName: "", permissions: ["experiment.view"], duration: "7", reason: "" });
   const [selectedApprovalRequestIds, setSelectedApprovalRequestIds] = useState<string[]>([]);
+  const [analysisRangeOpen, setAnalysisRangeOpen] = useState(false);
+  const [analysisTarget, setAnalysisTarget] = useState<ExperimentRecord | null>(null);
+  const [analysisRange, setAnalysisRange] = useState<AnalysisRange>("14d");
   const [drawerStack, setDrawerStack] = useState<DrawerName[]>([]);
   const [focusedRolloutId, setFocusedRolloutId] = useState<string | null>(null);
   const [rolloutScope, setRolloutScope] = useState<"context" | "all">("context");
   const [monitorProblemTypes, setMonitorProblemTypes] = useState<string[]>([]);
   const [monitorView, setMonitorView] = useState<MonitorView>("alerts");
-  const [selectedAlertId, setSelectedAlertId] = useState("ALT-002");
+  const [selectedAlertId, setSelectedAlertId] = useState("ALT-LEGACY");
   const [alertRules, setAlertRules] = useState<AlertRuleRecord[]>(initialAlertRules);
   const [selectedRuleId, setSelectedRuleId] = useState(initialAlertRules[0].id);
   const [ruleDraft, setRuleDraft] = useState<AlertRuleRecord>({ ...initialAlertRules[0], recipients: [...initialAlertRules[0].recipients], audit: [...initialAlertRules[0].audit] });
@@ -1154,6 +1157,11 @@ function App() {
   const [personEditorMode, setPersonEditorMode] = useState<"view" | "edit" | "new" | null>(null);
   const [roleDraft, setRoleDraft] = useState<any>(null);
   const [personDraft, setPersonDraft] = useState<any>(null);
+  const [businessDomainDraft, setBusinessDomainDraft] = useState("");
+  const [editingBusinessDomain, setEditingBusinessDomain] = useState<string | null>(null);
+  const [editingBusinessDomainName, setEditingBusinessDomainName] = useState("");
+  const [businessDomainEditMode, setBusinessDomainEditMode] = useState(false);
+  const [addingBusinessDomain, setAddingBusinessDomain] = useState(false);
   const [permissionAudit, setPermissionAudit] = useState([
     { id: "PERM-AUD-001", time: "2026-08-20 16:40", actor: "赵晨", target: "实验负责人", action: "增加启停自己规则权限" },
     { id: "PERM-AUD-002", time: "2026-08-18 10:12", actor: "李维", target: "分析人员", action: "可见范围调整为授权业务域" },
@@ -1187,14 +1195,31 @@ function App() {
     saveDemoState(next);
   };
 
+  const businessDomains = (demoState.businessDomains?.length ? demoState.businessDomains : ALL_DOMAINS) as string[];
+  const createCurrentDomainDraft = () => {
+    const draft = createDefaultDraft();
+    const defaultDomain = businessDomains.includes(draft.basic.domain) ? draft.basic.domain : businessDomains[0] ?? draft.basic.domain;
+    return { ...draft, basic: { ...draft.basic, businessLine: defaultDomain, domain: defaultDomain }, seed: { ...draft.seed, generated: { ...draft.seed.generated, domain: defaultDomain } } };
+  };
+  const experimentOverrides = (demoState.experimentOverrides ?? {}) as Record<string, ExperimentRecord>;
   const ledgerExperiments = useMemo(() => [...createdExperiments, ...experiments.map((item) => experimentOverrides[item.id] ?? item)], [createdExperiments, experimentOverrides]);
   const importBatches = (demoState.importBatches ?? INITIAL_IMPORT_BATCHES) as ImportBatch[];
+  const analysisCases = (demoState.analysisCases ?? []) as AttributionCase[];
+  const collaborationNotices = (demoState.collaborationNotices ?? []) as CollaborationNotice[];
+  const unreadCollaborationNoticeCount = collaborationNotices.filter((notice) => notice.recipient === activeAccount?.name && !notice.read).length;
   const canApprovePermissionRequest = (request: any) => {
     if (!activeAccount || request.status !== "pending") return false;
     if (request.scope === "experiment") return canApproveExperimentRequest(demoState, activeAccount, request, ledgerExperiments.find((item) => item.id === request.resourceId));
     return activeAccount.role === "admin";
   };
   const pendingApprovalRequests = (demoState.requests ?? []).filter((request: any) => canApprovePermissionRequest(request));
+
+  useEffect(() => {
+    const backfilledNotices = buildMissingCollaborationNotices(analysisCases, collaborationNotices);
+    if (backfilledNotices.length) {
+      persistDemoState({ ...demoState, collaborationNotices: [...collaborationNotices, ...backfilledNotices] });
+    }
+  }, [analysisCases, collaborationNotices, demoState]);
 
   const filteredExperiments = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
@@ -1324,7 +1349,7 @@ function App() {
   }, [selected, investigationContext]);
   const sourcePlatformTips = ["平台接入", "表格导入", "手动补录"];
   const ownerTips = Array.from(new Set(ledgerExperiments.map((item) => item.owner)));
-  const importPrecheckRows = uploadedImport ? runImportPrecheck(uploadedImport.rows, ledgerExperiments) : [];
+  const importPrecheckRows = uploadedImport ? runImportPrecheck(uploadedImport.rows, ledgerExperiments, businessDomains) : [];
 
   function updateFilter(key: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -1480,7 +1505,7 @@ function App() {
   }
 
   function openCreateFlow() {
-    const nextDraft = createDefaultDraft();
+    const nextDraft = createCurrentDomainDraft();
     clearCreateDraft();
     setCreateDraft(nextDraft);
     navigateToCreateStep("basic");
@@ -1707,6 +1732,7 @@ function App() {
       startTime: timestamp,
       lastUpdated: timestamp,
       coreMetric: coreMetric ? `${coreMetric.name} v${coreMetric.version}` : draft.basic.coreMetric.trim() || "待填写",
+      expectedDirection: draft.basic.expectedDirection ?? "up",
       guardrailMetric: guardrailMetrics.length ? guardrailMetrics.map((metric) => `${metric.name} v${metric.version}`).join("、") : draft.basic.guardrailMetric.trim() || "待填写",
       stageStatus: "实验前",
       metricConfig: { metricType: "转化率", baseline: draft.sample.baseline, mde: draft.sample.mde, confidence: draft.sample.confidence, power: draft.sample.power, dailyTraffic: draft.sample.dailyTraffic },
@@ -1727,7 +1753,7 @@ function App() {
       showToast("该草稿缺少可恢复的新建信息");
       return;
     }
-    const defaults = createDefaultDraft();
+    const defaults = createCurrentDomainDraft();
     const draft = {
       ...defaults,
       ...record.createDraft,
@@ -1749,7 +1775,7 @@ function App() {
       return;
     }
     const sourceDraft = createDraftFromExperimentRecord(record);
-    const defaults = createDefaultDraft();
+    const defaults = createCurrentDomainDraft();
     const draft = {
       ...defaults,
       recordId: "",
@@ -1781,7 +1807,7 @@ function App() {
       return nextRecords;
     });
     clearCreateDraft();
-    setCreateDraft(createDefaultDraft());
+    setCreateDraft(createCurrentDomainDraft());
     navigateToTab("list");
     showToast(`已完成创建：${record.name}`);
   }
@@ -1795,7 +1821,7 @@ function App() {
       });
       return;
     }
-    setExperimentOverrides((current) => ({ ...current, [record.id]: record }));
+    persistDemoState({ ...demoState, experimentOverrides: { ...experimentOverrides, [record.id]: record } });
   }
 
   function updateExperimentLifecycle(record: ExperimentRecord, requestedAction = getExperimentStatusAction(record.status)) {
@@ -1831,15 +1857,13 @@ function App() {
         return nextRecords;
       });
     } else {
-      setExperimentOverrides((current) => {
-        const next = { ...current };
-        delete next[record.id];
-        return next;
-      });
+      const nextOverrides = { ...experimentOverrides };
+      delete nextOverrides[record.id];
+      persistDemoState({ ...demoState, experimentOverrides: nextOverrides });
     }
     if (createDraft.recordId === record.id) {
       clearCreateDraft();
-      setCreateDraft(createDefaultDraft());
+      setCreateDraft(createCurrentDomainDraft());
     }
     showToast(`已删除：${record.name}`);
   }
@@ -1887,10 +1911,11 @@ function App() {
     if (drawer === "create") setCreateExperimentOpen(true);
     if (drawer === "messages") setMessageCenterOpen(true);
     if (drawer === "request") setPermissionRequestOpen(true);
+    if (drawer === "analysis") setAnalysisRangeOpen(true);
     setDrawerStack((current) => pushDrawer(current, drawer));
   }
 
-  function openMessageCenter(nextTab: "imports" | "requests" | "approvals" = "imports") {
+  function openMessageCenter(nextTab: "imports" | "requests" | "notifications" | "approvals" = "imports") {
     setMessageTab(nextTab);
     openDrawer("messages");
   }
@@ -1997,6 +2022,7 @@ function App() {
     if (result.closed === "create") setCreateExperimentOpen(false);
     if (result.closed === "messages") setMessageCenterOpen(false);
     if (result.closed === "request") setPermissionRequestOpen(false);
+    if (result.closed === "analysis") { setAnalysisRangeOpen(false); setAnalysisTarget(null); }
     setDrawerStack(result.stack);
   }
 
@@ -2052,78 +2078,80 @@ function App() {
     }
   }
 
-  function navigateWithInvestigation(tab: Tab, focus: EvidenceFocus) {
-    if (!investigationContext) {
-      showToast("请先从异常或实验详情建立本地排查上下文");
-      return;
-    }
-    const nextContext = {
-      ...investigationContext,
-      evidenceFocus: focus,
-    };
-    setInvestigationContext(nextContext);
-    setEvidenceTimeline(buildEvidenceTimeline(nextContext));
-    saveInvestigationContext(nextContext);
-    navigateToTab(tab, { context: nextContext });
+  function openEffectAnalysis(experiment: ExperimentRecord) {
+    if (!can("experiment.edit", experiment)) return showToast("需要实验编辑权限才能开始排查");
+    const existing = analysisCases.find((item) => item.experimentId === experiment.id);
+    if (existing) return openAnalysisCase(existing, experiment);
+    setAnalysisTarget(experiment);
+    setAnalysisRange("14d");
+    openDrawer("analysis");
   }
 
-  function startInvestigation(experimentId: string, options: InvestigationStartOptions = {}) {
-    const experiment = experiments.find((item) => item.id === experimentId);
-    if (!experiment) {
-      showToast("未找到对应实验，无法建立本地排查");
-      return;
-    }
-    const alert = options.alertId ? monitorAlerts.find((item) => item.id === options.alertId && item.experimentId === experimentId) : undefined;
-    const now = new Date();
-    const draft: InvestigationContext = {
-      caseId: createLocalCaseId(now),
-      experimentId,
-      ...(alert ? { alertId: alert.id } : {}),
-      timeRange: options.timeRange ?? "14d",
-      entrySource: options.entrySource ?? "monitor",
-      evidenceFocus: options.focus ?? "overview",
-      status: "idle",
-      owner: alert?.owner ?? experiment.owner,
+  function openAnalysisCase(caseRecord: AttributionCase, experiment?: ExperimentRecord) {
+    const target = experiment ?? ledgerExperiments.find((item) => item.id === caseRecord.experimentId);
+    if (!target) return showToast("未找到分析案例对应的实验");
+    const context: InvestigationContext = {
+      caseId: caseRecord.id,
+      experimentId: target.id,
+      timeRange: caseRecord.range,
+      entrySource: "detail",
+      evidenceFocus: "overview",
+      status: caseRecord.status,
+      owner: target.owner,
       collaborators: [],
       resolution: "",
-      updatedAt: now.toISOString().slice(0, 16).replace("T", " "),
+      updatedAt: caseRecord.updatedAt,
       actions: [],
     };
-    const nextContext = transitionInvestigation(draft, "investigating", "已建立本地排查上下文");
-    setInvestigationContext(nextContext);
-    setEvidenceTimeline(buildEvidenceTimeline(nextContext));
-    saveInvestigationContext(nextContext);
-    navigateToTab(options.tab ?? "investigate", { context: nextContext });
-    showToast("已建立本地排查上下文（演示状态，未写入生产系统）");
+    setCommandOpen(false);
+    closeDetail();
+    setInvestigationContext(context);
+    setEvidenceTimeline(buildEvidenceTimeline(context));
+    saveInvestigationContext(context);
+    navigateToTab("investigate", { context });
   }
 
-  function focusExperimentInvestigation(experimentId: string, focus: EvidenceFocus, entrySource: InvestigationContext["entrySource"]) {
-    if (investigationContext?.caseId && investigationContext.experimentId === experimentId) {
-      navigateWithInvestigation("investigate", focus);
+  function runEffectAnalysis() {
+    const experiment = analysisTarget;
+    if (!experiment) return;
+    const event = findEffectInversionEvent(experiment.id, analysisRange);
+    const detection = detectEffectInversion(event, experiment.metricConfig.mde, experiment.expectedDirection ?? "up");
+    setCommandOpen(false);
+    closeTopmostDrawer();
+    if (!detection.detected || !event) {
+      showToast("当前范围未定位异常");
       return;
     }
-    startInvestigation(experimentId, { tab: "investigate", focus, entrySource });
+    const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+    const existing = analysisCases.find((item) => item.experimentId === experiment.id && item.eventId === event.id);
+    if (existing) return openAnalysisCase(existing, experiment);
+    const verifications = scanRunningExperiments(experiment, ledgerExperiments, relationRecords) as CandidateVerification[];
+    const caseRecord: AttributionCase = { id: createLocalCaseId(), experimentId: experiment.id, eventId: event.id, range: analysisRange, createdAt: now, updatedAt: now, status: "investigating", verifications };
+    const existingNotices = collaborationNotices;
+    const notices = verifications.filter(isCollaborationNoticeEligible)
+      .map((verification) => createCollaborationNotice({ caseId: caseRecord.id, verification, targetExperimentId: experiment.id, createdAt: now }))
+      .filter((notice) => !existingNotices.some((item) => item.caseId === notice.caseId && item.candidateExperimentId === notice.candidateExperimentId));
+    persistDemoState({ ...demoState, analysisCases: [caseRecord, ...analysisCases], collaborationNotices: [...notices, ...existingNotices], audit: [{ id: `ANALYSIS-${Date.now()}`, time: now, actor: activeAccount?.name ?? "当前用户", action: `建立异常排查 ${caseRecord.id}` }, ...demoState.audit] });
+    openAnalysisCase(caseRecord, experiment);
+    showToast(notices.length ? "已建立异常排查案例并通知相关负责人" : "已建立异常排查案例");
   }
 
-  function updateInvestigationStatus(nextStatus: InvestigationStatus, note: string) {
-    if (!investigationContext) {
-      showToast("请先建立本地排查上下文");
-      return;
-    }
-    const normalizedNote = note.trim();
-    if (["resolved", "closed"].includes(nextStatus) && normalizedNote.length < 6) {
-      showToast("结束排查前请记录至少 6 个字符的本地结论");
-      return;
-    }
-    try {
-      const nextContext = transitionInvestigation(investigationContext, nextStatus, normalizedNote);
-      setInvestigationContext(nextContext);
-      setEvidenceTimeline(buildEvidenceTimeline(nextContext));
-      saveInvestigationContext(nextContext);
-      showToast(`本地排查状态已更新为${investigationStatusText[nextStatus]}（演示状态）`);
-    } catch {
-      showToast(`当前状态不能切换为${investigationStatusText[nextStatus]}`);
-    }
+  // Legacy relationship and rollout affordances now delegate to the same case entry.
+  function navigateWithInvestigation(tab: Tab, _focus: EvidenceFocus) {
+    if (!investigationContext?.caseId) return showToast("请从实验详情开始异常排查");
+    const caseRecord = analysisCases.find((item) => item.id === investigationContext.caseId);
+    if (caseRecord) openAnalysisCase(caseRecord);
+    else navigateToTab(tab, { context: investigationContext });
+  }
+
+  function startInvestigation(experimentId: string, _legacyOptions?: unknown) {
+    const experiment = ledgerExperiments.find((item) => item.id === experimentId);
+    if (experiment) openEffectAnalysis(experiment);
+  }
+
+  function focusExperimentInvestigation(experimentId: string, _focus: EvidenceFocus, _entrySource: InvestigationContext["entrySource"]) {
+    const experiment = ledgerExperiments.find((item) => item.id === experimentId);
+    if (experiment) openEffectAnalysis(experiment);
   }
 
   useEffect(() => {
@@ -2143,6 +2171,17 @@ function App() {
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
   }, [activeDrawer, drawerStack]);
+
+  useEffect(() => {
+    if (!commandOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !globalSearchRef.current?.contains(event.target)) {
+        setCommandOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [commandOpen]);
 
   useEffect(() => {
     const body = document.body;
@@ -2165,7 +2204,7 @@ function App() {
     const focusFallback = () => {
       const heading = mainRef.current?.querySelector<HTMLElement>("h1") ?? mainRef.current;
       if (heading && heading.tabIndex < 0) heading.tabIndex = -1;
-      return [activeNavRef.current, searchInputRef.current, heading].find(isSafeFocusTarget) ?? null;
+      return [activeNavRef.current, heading].find(isSafeFocusTarget) ?? null;
     };
     const scheduleFocus = (target: HTMLElement | null) => {
       focusAnimationFrameRef.current = window.requestAnimationFrame(() => {
@@ -2228,6 +2267,21 @@ function App() {
         navigateToTab("list", { replace: true, context: recoveredContext });
         return;
       }
+      if (recovered.tab === "investigate" && recoveredContext?.experimentId && !recoveredContext.caseId) {
+        const existingCase = analysisCases.find((item) => item.experimentId === recoveredContext.experimentId);
+        if (existingCase) {
+          openAnalysisCase(existingCase);
+          return;
+        }
+        const target = ledgerExperiments.find((item) => item.id === recoveredContext.experimentId);
+        if (target && can("experiment.view", target)) {
+          setSelected(target);
+          setDetailTab("basic");
+          setActiveTab("list");
+          window.history.replaceState(null, "", "#list");
+          return;
+        }
+      }
       syncContextPageFocus(recovered.tab as Tab, recoveredContext);
       setActiveTab(recovered.tab as Tab);
       setInvestigationContext(recoveredContext);
@@ -2236,7 +2290,7 @@ function App() {
     window.addEventListener("hashchange", handleHashChange);
     handleHashChange();
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [roleView]);
+  }, [roleView, analysisCases, ledgerExperiments, demoState, activeAccount]);
 
   useEffect(() => {
     return () => {
@@ -2259,7 +2313,7 @@ function App() {
     setCreatedExperiments([]);
     saveCreatedRecords([]);
     clearCreateDraft();
-    setCreateDraft(createDefaultDraft());
+    setCreateDraft(createCurrentDomainDraft());
     navigateToTab("list", { replace: true, context: null });
   }
 
@@ -2343,15 +2397,15 @@ function App() {
 
       <div className="workspace" inert={hasOpenDrawer || undefined}>
         <header className="app-header">
-          <div className={`global-search ${commandOpen ? "open" : ""}`}>
-            <button className="quick-search-trigger" type="button" onClick={() => setCommandOpen(true)} aria-label="打开全局搜索">
+          <div ref={globalSearchRef} className={`global-search ${commandOpen ? "open" : ""}`}>
+            <button className="quick-search-trigger" type="button" onClick={() => { setCommandOpen(true); searchInputRef.current?.focus(); }} aria-label="打开全局搜索">
               <Search size={15} />
             </button>
             <input
               ref={searchInputRef}
               aria-label="全局搜索实验、Seed 和放量事件"
               value={globalSearchKeyword}
-              onFocus={() => setCommandOpen(true)}
+              onPointerDown={() => setCommandOpen(true)}
               onChange={(event) => {
                 setGlobalSearchKeyword(event.target.value);
                 setCommandOpen(true);
@@ -2365,8 +2419,8 @@ function App() {
             {commandOpen ? (
               <div className="command-palette">
                 <div className="command-palette-title">
-                  <strong>全局定位</strong>
-                  <span>搜索实验、seed、放量事件；不会替代当前页面筛选</span>
+                  <div><strong>全局定位</strong><span>搜索实验、seed、放量事件；不会替代当前页面筛选</span></div>
+                  <button className="command-palette-close" type="button" onClick={() => setCommandOpen(false)} aria-label="关闭全局搜索" title="关闭搜索"><X size={15} /></button>
                 </div>
                 <div className="command-results">
                   {searchResults.map((item) => (
@@ -2390,7 +2444,7 @@ function App() {
           </div>
           <div className="header-actions">
             <button className="circle-button message-center-trigger" type="button" aria-label="消息中心" title="消息中心" onClick={() => openMessageCenter("imports")}>
-              <Bell size={17} />
+              <Bell size={17} />{unreadCollaborationNoticeCount ? <b className="message-unread-badge">{unreadCollaborationNoticeCount}</b> : null}
               {pendingApprovalRequests.length ? <i aria-hidden="true" /> : null}
             </button>
             <button id="headerHelpButton" className="circle-button header-help-button" type="button" aria-label="帮助文档" title="帮助文档" onClick={() => openDrawer("help")}>
@@ -2620,7 +2674,7 @@ function App() {
               <button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭消息中心" onClick={closeTopmostDrawer}><X size={18} aria-hidden="true" /></button>
             </div>
             <div className="message-center-tabs" role="tablist" aria-label="消息中心分类">
-              {[{ id: "imports", label: "导入记录" }, { id: "requests", label: "我的申请" }, ...(pendingApprovalRequests.length || activeAccount.role === "admin" ? [{ id: "approvals", label: `待我审批 ${pendingApprovalRequests.length}` }] : [])].map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={messageTab === tab.id} className={messageTab === tab.id ? "active" : ""} onClick={() => setMessageTab(tab.id as typeof messageTab)}>{tab.label}</button>)}
+              {[{ id: "imports", label: "导入记录" }, { id: "requests", label: "我的申请" }, { id: "approvals", label: `待我审批 ${pendingApprovalRequests.length}` }, { id: "notifications", label: `协同通知${unreadCollaborationNoticeCount ? ` ${unreadCollaborationNoticeCount}` : ""}` }].map((tab) => <button key={tab.id} type="button" role="tab" aria-selected={messageTab === tab.id} className={messageTab === tab.id ? "active" : ""} onClick={() => setMessageTab(tab.id as typeof messageTab)}>{tab.label}</button>)}
             </div>
             {messageTab === "imports" ? <section className="message-center-panel" role="tabpanel">
               <div className="message-center-panel-head"><h3>批量导入记录</h3><span>{activeAccount.role === "admin" ? "全部批次" : "本人提交"}</span></div>
@@ -2635,12 +2689,32 @@ function App() {
                 {!demoState.requests.some((request: any) => request.accountId === activeAccount.id) ? <tr className="message-empty-row"><td colSpan={7}>暂无权限申请记录</td></tr> : null}
               </tbody></table></div>
             </section> : null}
+            {messageTab === "notifications" ? <section className="message-center-panel" role="tabpanel">
+              <div className="message-center-panel-head"><h3>协同通知</h3><span>仅展示与您负责实验相关的提示</span></div>
+              <div className="table-wrap"><table className="data-table compact message-notification-table"><thead><tr><th>通知内容</th><th>发送时间</th><th>状态</th><th>操作</th></tr></thead><tbody>
+                {collaborationNotices.filter((notice) => notice.recipient === activeAccount?.name).map((notice) => { const candidateExperiment = ledgerExperiments.find((item) => item.id === notice.candidateExperimentId); const markRead = () => persistDemoState({ ...demoState, collaborationNotices: collaborationNotices.map((item) => item.id === notice.id ? { ...item, read: true } : item) }); const openCandidateExperiment = () => { markRead(); closeTopmostDrawer(); if (candidateExperiment) openDetail(candidateExperiment); }; return <tr key={notice.id}><td>{candidateExperiment ? <><span>您负责的实验 </span><button type="button" className="message-action-link" onClick={openCandidateExperiment}>{candidateExperiment.name}（{candidateExperiment.id}）</button><span> 与另一实验存在交叉验证信号，请关注。</span></> : <>{notice.text}（实验 ID：{notice.candidateExperimentId}）</>}</td><td>{notice.createdAt}</td><td>{notice.read ? "已读" : "未读"}</td><td>{notice.read ? <span className="muted-text">已处理</span> : <button type="button" className="message-action-link" onClick={markRead}>标记已读</button>}</td></tr>; })}
+                {!collaborationNotices.some((notice) => notice.recipient === activeAccount?.name) ? <tr className="message-empty-row"><td colSpan={4}>暂无协同通知</td></tr> : null}
+              </tbody></table></div>
+            </section> : null}
             {messageTab === "approvals" ? <section className="message-center-panel" role="tabpanel">
               <div className="message-center-panel-head"><h3>待我审批的权限申请</h3><button className="primary-button" type="button" disabled={!selectedApprovalRequestIds.length} onClick={() => decidePermissionRequests(selectedApprovalRequestIds, true)}>一键通过</button></div>
               <div className="table-wrap"><table className="data-table compact approval-table"><colgroup><col /><col /><col /><col /><col /><col /></colgroup><thead><tr><th><input type="checkbox" aria-label="选择全部待审批申请" checked={pendingApprovalRequests.length > 0 && selectedApprovalRequestIds.length === pendingApprovalRequests.length} onChange={(event) => setSelectedApprovalRequestIds(event.target.checked ? pendingApprovalRequests.map((request: any) => request.id) : [])} /></th><th>申请人 / 登录名</th><th>资源类型</th><th>资源名称</th><th>权限类型</th><th>操作</th></tr></thead><tbody>
                 {pendingApprovalRequests.map((request: any) => <tr key={request.id}><td><input type="checkbox" aria-label={`选择权限申请 ${request.id}`} checked={selectedApprovalRequestIds.includes(request.id)} onChange={() => setSelectedApprovalRequestIds((current) => current.includes(request.id) ? current.filter((id) => id !== request.id) : [...current, request.id])} /></td><td><strong>{request.accountName}</strong><span>{request.accountId}</span></td><td>{request.scope === "experiment" ? "实验" : request.scope === "metric" ? "指标" : "样本来源"}</td><td>{request.resourceName ?? request.resourceId}</td><td>{(request.permissions ?? [request.permission]).map((permission: string) => permission.replace(/^(experiment|metric)\./, "")).join("、")}</td><td><div className="row-actions"><button type="button" onClick={() => decidePermissionRequests([request.id], true)}>通过</button><button type="button" className="ledger-delete-action" onClick={() => decidePermissionRequests([request.id], false)}>驳回</button></div></td></tr>)}
+                {!pendingApprovalRequests.length ? <tr className="message-empty-row"><td colSpan={6}>暂无待我审批的权限申请</td></tr> : null}
               </tbody></table></div>
             </section> : null}
+          </aside>
+        </div>
+      ) : null}
+
+      {analysisRangeOpen && activeDrawer === "analysis" ? (
+        <div className="drawer-mask filter-dialog-mask show" onClick={closeTopmostDrawer}>
+          <aside ref={drawerRef} className="drawer analysis-range-dialog" role="dialog" aria-modal="true" aria-labelledby="analysis-range-title" tabIndex={-1} onKeyDown={trapDrawerFocus} onClick={(event) => event.stopPropagation()}>
+            <div className="drawer-header"><div><span>异常排查</span><h2 id="analysis-range-title">选择分析范围</h2></div><button ref={activeDrawerCloseRef} className="circle-button" type="button" aria-label="关闭分析范围选择" onClick={closeTopmostDrawer}><X size={18} /></button></div>
+            <div className="analysis-target-summary"><span>目标实验</span><strong>{analysisTarget?.name}</strong><small>{analysisTarget?.id} · {analysisTarget?.coreMetric}</small></div>
+            <fieldset className="analysis-range-options"><legend>观测时间范围</legend>{(["7d", "14d", "30d"] as AnalysisRange[]).map((range) => <label key={range}><input type="radio" name="analysis-range" checked={analysisRange === range} onChange={() => setAnalysisRange(range)} /><span>近 {range.replace("d", " 天")}</span></label>)}</fieldset>
+            <p className="hint">系统将检查连续两个观测窗口是否与预期方向相反，并自动扫描全部运行中实验的交叉信号。</p>
+            <div className="drawer-actions"><button className="ghost-button" type="button" onClick={closeTopmostDrawer}>取消</button><button className="primary-button" type="button" onClick={runEffectAnalysis}>开始分析</button></div>
           </aside>
         </div>
       ) : null}
@@ -2745,10 +2819,11 @@ function App() {
           <Panel title="实验基本信息">
             <div className="form-grid create-basic-grid">
               <label className="field vertical wide-field"><span><i className="required-marker" aria-hidden="true">*</i>实验名称</span><input data-create-basic="name" value={createDraft.basic.name} onChange={(event) => updateCreateBasic("name", event.target.value)} /></label>
-              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
-              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>实验域</span><select data-create-basic="domain" value={createDraft.basic.domain} onChange={(event) => updateCreateBasic("domain", event.target.value)}><option>增长</option><option>会员</option><option>推荐</option><option>交易</option><option>搜索</option></select></label>
+              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>业务线</span><select data-create-basic="businessLine" value={createDraft.basic.businessLine} onChange={(event) => updateCreateBasic("businessLine", event.target.value)}>{businessDomains.map((domain) => <option key={domain}>{domain}</option>)}</select></label>
+              <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>实验域</span><select data-create-basic="domain" value={createDraft.basic.domain} onChange={(event) => updateCreateBasic("domain", event.target.value)}>{businessDomains.map((domain) => <option key={domain}>{domain}</option>)}</select></label>
               <label className="field vertical"><span><i className="required-marker" aria-hidden="true">*</i>负责人</span><input data-create-basic="owner" value={createDraft.basic.owner} onChange={(event) => updateCreateBasic("owner", event.target.value)} list="owner-options" /></label>
-              <label className="field vertical"><span>实验类型</span><select value={createDraft.basic.experimentType} onChange={(event) => updateCreateBasic("experimentType", event.target.value)}><option>A/B</option><option>A/A</option><option>灰度验证</option></select></label>
+               <label className="field vertical"><span>实验类型</span><select value={createDraft.basic.experimentType} onChange={(event) => updateCreateBasic("experimentType", event.target.value)}><option>A/B</option><option>A/A</option><option>灰度验证</option></select></label>
+               <label className="field vertical"><span>核心指标预期方向</span><select data-create-basic="expectedDirection" value={createDraft.basic.expectedDirection} onChange={(event) => updateCreateBasic("expectedDirection", event.target.value)}><option value="up">提升</option><option value="down">降低</option></select></label>
               <label className="field vertical"><span>计划开始时间</span><input type="date" value={createDraft.basic.planStartDate} onChange={(event) => updateCreateBasic("planStartDate", event.target.value)} /></label>
               <label className="field vertical wide-field"><span><i className="required-marker" aria-hidden="true">*</i>实验假设</span><textarea data-create-basic="hypothesis" rows={4} value={createDraft.basic.hypothesis} onChange={(event) => updateCreateBasic("hypothesis", event.target.value)} /></label>
             </div>
@@ -2859,7 +2934,7 @@ function App() {
     const pending = dashboardExperiments.filter((experiment) => experiment.status === "pending");
     const ended = dashboardExperiments.filter((experiment) => experiment.status === "ended");
     const anomalies = dashboardExperiments.filter((experiment) => experiment.alertStatus === "warning" || experiment.alertStatus === "critical");
-    const domainStats = ALL_DOMAINS.map((domain) => ({
+    const domainStats = businessDomains.map((domain) => ({
       domain,
       total: dashboardExperiments.filter((experiment) => experiment.businessLine === domain).length,
       running: dashboardExperiments.filter((experiment) => experiment.businessLine === domain && experiment.status === "running").length,
@@ -3079,9 +3154,9 @@ function App() {
     return <section className="module-page metric-library" data-page-id="metrics" data-page-core="metric-library">
       <div className="page-heading">
         <div><h1>指标管理</h1><p>统一管理指标口径、来源、更新频率、负责人和启停状态。</p></div>
-        {can("metric.edit", { domain: ALL_DOMAINS[0] }) ? <button className="primary-button" type="button" onClick={() => openMetricEditor({ id: "", name: "", domain: activeAccount.domains[0] ?? "增长", definition: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [], editors: [activeAccount.id] }, "new")}><Plus size={16} /> 新增指标</button> : null}
+        {businessDomains.some((domain) => can("metric.edit", { domain })) ? <button className="primary-button" type="button" onClick={() => openMetricEditor({ id: "", name: "", domain: businessDomains.find((domain) => can("metric.edit", { domain })) ?? businessDomains[0] ?? "", definition: "", version: 1, sourceType: "table", sourceRef: "", refreshFrequency: "日更", updatedAt: "", freshness: "", owner: activeAccount.name, status: "active", viewers: [], editors: [activeAccount.id] }, "new")}><Plus size={16} /> 新增指标</button> : null}
       </div>
-      <div className="ledger-filter-bar metric-filter-bar" data-metric-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索指标</span><input data-metric-filter="keyword" placeholder="指标 ID / 名称" value={metricFilters.keyword} onChange={(event) => setMetricFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">业务域</span><select data-metric-filter="domain" value={metricFilters.domain} onChange={(event) => setMetricFilters((current) => ({ ...current, domain: event.target.value }))}><option value="all">业务域</option>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-metric-filter="status" value={metricFilters.status} onChange={(event) => setMetricFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label><label className="field vertical ledger-owner-field"><span className="sr-only">负责人</span><input data-metric-filter="owner" placeholder="负责人" value={metricFilters.owner} onChange={(event) => setMetricFilters((current) => ({ ...current, owner: event.target.value }))} /></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setMetricFilters(defaultMetricFilters)}><RefreshCcw size={16} /> 重置</button></div></div>
+      <div className="ledger-filter-bar metric-filter-bar" data-metric-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索指标</span><input data-metric-filter="keyword" placeholder="指标 ID / 名称" value={metricFilters.keyword} onChange={(event) => setMetricFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">业务域</span><select data-metric-filter="domain" value={metricFilters.domain} onChange={(event) => setMetricFilters((current) => ({ ...current, domain: event.target.value }))}><option value="all">业务域</option>{businessDomains.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-metric-filter="status" value={metricFilters.status} onChange={(event) => setMetricFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label><label className="field vertical ledger-owner-field"><span className="sr-only">负责人</span><input data-metric-filter="owner" placeholder="负责人" value={metricFilters.owner} onChange={(event) => setMetricFilters((current) => ({ ...current, owner: event.target.value }))} /></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setMetricFilters(defaultMetricFilters)}><RefreshCcw size={16} /> 重置</button></div></div>
       <div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>指标</th><th>业务域</th><th>数据来源</th><th>更新频率</th><th>负责人</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredMetrics.map((metric) => { const permitted = can("metric.view", metric) || can("metric.edit", metric); return <tr key={metric.id} data-metric-access={permitted ? "allowed" : "restricted"}><td><strong>{permitted ? metric.name : `受限指标 ${metric.id}`}</strong><span className="mono">{metric.id} · v{metric.version}</span></td><td>{metric.domain}</td><td>{permitted ? `${metric.sourceType === "table" ? "线上表" : "推送任务"} · ${metric.sourceRef}` : "受限"}</td><td>{metric.refreshFrequency}</td><td>{metric.owner}</td><td><span className={`quality-badge ${metric.status === "active" ? "passed" : "warning"}`}>{metric.status === "active" ? "启用" : "停用"}</span></td><td>{metric.updatedAt}</td><td><div className="row-actions">{!permitted ? <button type="button" onClick={() => openPermissionRequest("metric", metric)}>申请</button> : <><button type="button" onClick={() => openMetricEditor(metric, "view")}>查看</button>{can("metric.edit", metric) ? <button type="button" onClick={() => openMetricEditor(metric, "edit")}>编辑</button> : null}{can("metric.status", metric) ? <button type="button" onClick={() => updateMetricStatus(metric, metric.status === "active" ? "disabled" : "active")}>{metric.status === "active" ? "停用" : "启用"}</button> : null}{metric.status === "disabled" && can("metric.delete", metric) ? <button className="ledger-delete-action" type="button" onClick={() => deleteMetric(metric)}>删除</button> : null}</>}</div></td></tr>; })}</tbody></table></div>
     </section>;
   }
@@ -3098,7 +3173,7 @@ function App() {
       persistDemoState({ ...demoState, metrics: metrics.some((metric) => metric.id === next.id) ? metrics.map((metric) => metric.id === next.id ? next : metric) : [next, ...metrics], audit: [{ id: `METRIC-${Date.now()}`, time: updatedAt, actor: activeAccount.name, action: `${metricDraft.id ? "更新" : "新增"}指标 ${next.name}` }, ...demoState.audit] });
       navigateToTab("metrics"); showToast("指标已保存");
     };
-    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{ALL_DOMAINS.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : canRequestMetricEditPermission(metricDraft) ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div> : null}</Panel></section>;
+    return <section className="module-page metric-editor-page" data-page-id="metricEditor"><div className="page-heading"><div><button className="back-button" type="button" onClick={() => navigateToTab("metrics")}>返回</button><h1>{metricEditorMode === "new" ? "新增指标" : metricEditorMode === "edit" ? "编辑指标" : "查看指标"}</h1><p>{metricDraft.id || "保存后自动生成指标 ID"}</p></div></div><Panel title="指标配置"><div className="form-grid"><label className="field vertical"><span>指标名称</span><input disabled={!editable} value={metricDraft.name} onChange={(event) => setMetricDraft({ ...metricDraft, name: event.target.value })} /></label><label className="field vertical"><span>业务域</span><select disabled={!editable} value={metricDraft.domain} onChange={(event) => setMetricDraft({ ...metricDraft, domain: event.target.value })}>{businessDomains.map((domain) => <option key={domain}>{domain}</option>)}</select></label><label className="field vertical wide-field"><span>口径定义</span><textarea disabled={!editable} rows={3} value={metricDraft.definition} onChange={(event) => setMetricDraft({ ...metricDraft, definition: event.target.value })} /></label><label className="field vertical"><span>数据来源类型</span><select disabled={!editable} value={metricDraft.sourceType} onChange={(event) => setMetricDraft({ ...metricDraft, sourceType: event.target.value })}><option value="table">线上表</option><option value="task">推送任务</option></select></label><label className="field vertical"><span>表名 / 任务 ID</span><input disabled={!editable} value={metricDraft.sourceRef} onChange={(event) => setMetricDraft({ ...metricDraft, sourceRef: event.target.value })} /></label><label className="field vertical"><span>更新频率</span><select disabled={!editable} value={metricDraft.refreshFrequency} onChange={(event) => setMetricDraft({ ...metricDraft, refreshFrequency: event.target.value })}><option>小时级</option><option>日更</option><option>周更</option></select></label></div>{editable ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => navigateToTab("metrics")}>取消</button><button className="primary-button" type="button" onClick={saveMetric}>保存</button></div> : canRequestMetricEditPermission(metricDraft) ? <div className="drawer-actions"><button className="ghost-button" type="button" onClick={() => openPermissionRequest("metric", metricDraft, "metric.edit")}>申请编辑权限</button></div> : null}</Panel></section>;
   }
 
   function renderEvaluation() {
@@ -3260,13 +3335,9 @@ function App() {
       window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`[data-detail-tab="${tabs[nextIndex].id}"]`)?.focus());
     };
     const startDetailInvestigation = () => {
-      if (investigationContext?.caseId && investigationContext.experimentId === experiment.id) {
-        closeDetail();
-        navigateWithInvestigation("investigate", "overview");
-      } else {
-        closeDetail();
-        startInvestigation(experiment.id, { entrySource: "detail", focus: "overview" });
-      }
+      const existing = analysisCases.find((item) => item.experimentId === experiment.id);
+      if (existing) openAnalysisCase(existing, experiment);
+      else openEffectAnalysis(experiment);
     };
 
     return (
@@ -3316,7 +3387,7 @@ function App() {
           {detailTab === "basic" ? <>
             <section className="detail-section"><h2>基础信息</h2><dl className="detail-definition-list">
               <div><dt>来源平台</dt><dd>{experiment.sourcePlatform}</dd></div><div><dt>负责人</dt><dd>{experiment.owner}</dd></div>
-              <div><dt>核心指标</dt><dd>{experiment.coreMetric}</dd></div><div><dt>护栏指标</dt><dd>{experiment.guardrailMetric}</dd></div>
+              <div><dt>核心指标</dt><dd>{experiment.coreMetric}</dd></div><div><dt>预期方向</dt><dd>{(experiment.expectedDirection ?? "up") === "down" ? "降低" : "提升"}</dd></div><div><dt>护栏指标</dt><dd>{experiment.guardrailMetric}</dd></div>
               <div><dt>流量层</dt><dd>{experiment.trafficLayer}</dd></div><div><dt>目标人群</dt><dd>{experiment.userGroup}</dd></div>
               <div><dt>样本口径</dt><dd>{experiment.sampleDefinition.domain} · {experiment.sampleDefinition.source} · {experiment.sampleDefinition.unit}</dd></div><div><dt>实验状态</dt><dd>{statusText[experiment.status]}</dd></div>
             </dl></section>
@@ -3944,7 +4015,29 @@ function App() {
   }
 
   function renderInvestigation() {
-    return renderInvestigationWorkbench();
+    const currentCase = analysisCases.find((item) => item.id === investigationContext?.caseId)
+      ?? analysisCases.find((item) => item.experimentId === investigationContext?.experimentId);
+    const target = currentCase ? ledgerExperiments.find((item) => item.id === currentCase.experimentId) : null;
+    const event = currentCase ? findEffectInversionEvent(currentCase.experimentId, currentCase.range) : null;
+    if (!currentCase || !target || !event) {
+      return <section className="module-page effect-analysis-page" data-page-id="investigate"><div className="page-heading"><div><h1>异常排查</h1><p>请从拥有编辑权限的实验详情进入分析；系统会自动扫描全部运行中实验。</p></div></div><Panel title="暂无异常排查案例"><p className="muted-text">当前没有可恢复的异常排查案例。</p></Panel></section>;
+    }
+    const detection = detectEffectInversion(event, target.metricConfig.mde, target.expectedDirection ?? "up");
+    const drilldowns = buildLayerDrilldowns();
+    const candidateViews = currentCase.verifications.map((verification) => {
+      const candidate = ledgerExperiments.find((item) => item.id === verification.experimentId);
+      return candidate ? projectCandidateVerification(verification, candidate, can("experiment.view", candidate) || candidate.owner === activeAccount?.name) : null;
+    }).filter(Boolean) as any[];
+    return <section className="module-page effect-analysis-page" data-page-id="investigate" data-page-core="effect-inversion-analysis">
+      <div className="page-heading"><div><button className="back-link" type="button" onClick={() => navigateToTab("list", { context: null })}>返回</button><h1>异常排查</h1><p>{target.name}</p></div><span className={`quality-badge ${detection.severity}`}>{detection.severity === "critical" ? "严重" : "需关注"}</span></div>
+      <section className="effect-overview-grid" aria-label="异常概览"><div><span>预期效果</span><strong>{(target.expectedDirection ?? "up") === "down" ? "降低" : "提升"}</strong><small>{target.coreMetric}</small></div><div><span>实际效果</span><strong>{event.actualEffect}pp</strong><small>连续 {event.consecutiveWindows} 个窗口</small></div><div><span>显著性</span><strong>p = {event.pValue.toFixed(3)}</strong><small>MDE {target.metricConfig.mde}pp</small></div><div><span>倒挂起点</span><strong>{event.startedAt.slice(0, 10)}</strong><small>影响流量 {(event.affectedTraffic * 100).toFixed(0)}%</small></div></section>
+      <div className="effect-analysis-sections">
+        <Panel title="异常概览"><div className="effect-trend">{event.trend.map((value, index) => <div key={`${value}-${index}`} className={value < 0 ? "negative" : "positive"}><i style={{ height: `${Math.max(12, Math.abs(value) * 90)}px` }} /><span>窗口 {index + 1}</span><strong>{value > 0 ? "+" : ""}{value}pp</strong></div>)}</div><p className="notice-strip">{detection.reason}</p></Panel>
+        <Panel title="分层下钻"><div className="drilldown-list">{drilldowns.map((item) => <div key={`${item.dimension}-${item.value}`}><span>{item.dimension} · {item.value}</span><strong>损失 {item.loss}pp</strong><em>贡献 {item.contribution}%</em><small>{item.detail}</small></div>)}</div></Panel>
+        <Panel title="交叉验证"><p className="hint">已扫描全部运行中实验，按样本重叠、放量时间、分流交叉、指标同步和登记关系评分。</p><div className="candidate-verification-list">{candidateViews.map((candidate) => <article key={candidate.experimentId} className={candidate.status}><div><span className={`quality-badge ${candidate.status === "high_confidence" ? "critical" : "warning"}`}>{candidate.status === "high_confidence" ? "自动定位，建议关注" : "待核验"}</span><strong>{candidate.displayName}</strong><small>{candidate.disclosure === "full" ? `${candidate.strategy} · ${candidate.metric} · 放量 ${candidate.rollout}%` : `负责人：${candidate.owner}${candidate.riskCategory ? ` · ${candidate.riskCategory}` : ""}`}</small></div><div className="candidate-score"><strong>{candidate.score}</strong><span>综合分</span></div><p>{candidate.conclusion}</p>{candidate.disclosure === "full" ? <button type="button" className="link-button candidate-detail-link" onClick={() => openDetail(ledgerExperiments.find((item) => item.id === candidate.experimentId) ?? null)}>查看实验详情</button> : null}</article>)}</div></Panel>
+        <Panel title="证据与通知"><div className="evidence-timeline">{evidenceTimeline.map((item) => <div className={`evidence-timeline-item ${item.severity}`} key={item.id}><time>{item.occurredAt}</time><div><strong>{item.title}</strong><p>{item.summary}</p><span>{item.sourcePlatform} · {item.operator}</span></div></div>)}</div><p className="hint">高置信候选已向负责人发送去重协同通知；通知内容不会泄露受影响实验信息。</p></Panel>
+      </div>
+    </section>;
   }
 
   function renderGovernance() {
@@ -4030,7 +4123,7 @@ function App() {
       return (!keyword || [role.id, role.name, role.description, role.domains.join(" ")].join(" ").toLowerCase().includes(keyword))
         && (roleFilters.status === "all" || role.status === roleFilters.status);
     });
-    const openRole = (role: any, mode: "view" | "edit" | "new") => { setSelectedPermissionRole(role.id); setRoleDraft(role); setRoleEditorMode(mode); };
+    const openRole = (role: any, mode: "view" | "edit" | "new") => { setSelectedPermissionRole(role.id); setRoleDraft({ ...role, domains: [...(role.domains ?? [])], permissions: [...(role.permissions ?? [])] }); setRoleEditorMode(mode); setBusinessDomainDraft(""); setEditingBusinessDomain(null); setBusinessDomainEditMode(false); setAddingBusinessDomain(false); };
     const saveRole = () => {
       if (!roleDraft?.name?.trim() || !roleDraft.domains?.length || !roleDraft.permissions?.length) return showToast("请填写角色名称、业务域和权限");
       const now = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -4039,8 +4132,96 @@ function App() {
     };
     const deleteRole = (role: any) => { if (accounts.some((account) => account.roleIds?.includes(role.id))) return showToast("已有人员分配该角色，无法删除"); if (!window.confirm(`确认删除角色“${role.name}”吗？`)) return; persistDemoState({ ...demoState, roles: roles.filter((item) => item.id !== role.id) }); };
     const setRoleStatus = (role: any) => persistDemoState({ ...demoState, roles: roles.map((item) => item.id === role.id ? { ...item, status: item.status === "active" ? "disabled" : "active", updatedAt: new Date().toISOString().slice(0, 16).replace("T", " ") } : item) });
+    const renameExperimentDomain = (experiment: ExperimentRecord, from: string, to: string): ExperimentRecord => ({
+      ...experiment,
+      businessLine: experiment.businessLine === from ? to : experiment.businessLine,
+      sampleDefinition: experiment.sampleDefinition ? { ...experiment.sampleDefinition, domain: experiment.sampleDefinition.domain === from ? to : experiment.sampleDefinition.domain } : experiment.sampleDefinition,
+      createDraft: experiment.createDraft ? {
+        ...experiment.createDraft,
+        basic: {
+          ...experiment.createDraft.basic,
+          businessLine: experiment.createDraft.basic.businessLine === from ? to : experiment.createDraft.basic.businessLine,
+          domain: experiment.createDraft.basic.domain === from ? to : experiment.createDraft.basic.domain,
+        },
+        seed: {
+          ...experiment.createDraft.seed,
+          generated: experiment.createDraft.seed.generated ? { ...experiment.createDraft.seed.generated, domain: experiment.createDraft.seed.generated.domain === from ? to : experiment.createDraft.seed.generated.domain } : experiment.createDraft.seed.generated,
+        },
+      } : experiment.createDraft,
+    });
+    const renameCreateDraftDomain = (draft: CreateExperimentDraft, from: string, to: string): CreateExperimentDraft => ({
+      ...draft,
+      basic: { ...draft.basic, businessLine: draft.basic.businessLine === from ? to : draft.basic.businessLine, domain: draft.basic.domain === from ? to : draft.basic.domain },
+      seed: { ...draft.seed, generated: draft.seed.generated ? { ...draft.seed.generated, domain: draft.seed.generated.domain === from ? to : draft.seed.generated.domain } : draft.seed.generated },
+    });
+    const domainUsage = (domain: string) => {
+      const usage = [] as string[];
+      if (roles.some((role) => role.domains?.includes(domain)) || roleDraft?.domains?.includes(domain)) usage.push("角色");
+      if (ledgerExperiments.some((experiment) => experiment.businessLine === domain || experiment.sampleDefinition?.domain === domain)) usage.push("实验");
+      if ((demoState.metrics as any[]).some((metric) => metric.domain === domain)) usage.push("指标");
+      if ((demoState.sampleSources as any[]).some((source) => source.domain === domain)) usage.push("样本来源");
+      return usage;
+    };
+    const addBusinessDomain = () => {
+      const nextDomain = businessDomainDraft.trim();
+      if (!nextDomain) return showToast("请输入业务域名称");
+      if (businessDomains.includes(nextDomain)) return showToast("业务域名称已存在");
+      const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+      persistDemoState({ ...demoState, businessDomains: [...businessDomains, nextDomain], audit: [{ id: `DOMAIN-${Date.now()}`, time: now, actor: activeAccount?.name ?? "管理员", action: `新增业务域 ${nextDomain}` }, ...demoState.audit] });
+      setBusinessDomainDraft("");
+      setAddingBusinessDomain(false);
+      showToast("业务域已新增");
+    };
+    const saveBusinessDomainName = (domain: string) => {
+      const nextDomain = editingBusinessDomainName.trim();
+      if (!nextDomain) return showToast("请输入业务域名称");
+      if (nextDomain === domain) { setEditingBusinessDomain(null); return; }
+      if (businessDomains.includes(nextDomain)) return showToast("业务域名称已存在");
+      const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const nextOverrides = { ...experimentOverrides };
+      experiments.forEach((base) => {
+        const current = experimentOverrides[base.id] ?? base;
+        if (current.businessLine === domain || current.sampleDefinition?.domain === domain) nextOverrides[current.id] = renameExperimentDomain(current, domain, nextDomain);
+      });
+      const nextCreatedExperiments = createdExperiments.map((experiment) => renameExperimentDomain(experiment, domain, nextDomain));
+      const nextDraft = renameCreateDraftDomain(createDraft, domain, nextDomain);
+      const replaceFilterDomain = (value: string) => value === domain ? nextDomain : value;
+      persistDemoState({
+        ...demoState,
+        businessDomains: businessDomains.map((item) => item === domain ? nextDomain : item),
+        roles: roles.map((role) => ({ ...role, domains: (role.domains ?? []).map((item: string) => item === domain ? nextDomain : item) })),
+        accounts: accounts.map((account) => ({ ...account, domains: (account.domains ?? []).map((item: string) => item === domain ? nextDomain : item) })),
+        metrics: (demoState.metrics as any[]).map((metric) => ({ ...metric, domain: metric.domain === domain ? nextDomain : metric.domain })),
+        sampleSources: (demoState.sampleSources as any[]).map((source) => ({ ...source, domain: source.domain === domain ? nextDomain : source.domain })),
+        experimentOverrides: nextOverrides,
+        audit: [{ id: `DOMAIN-${Date.now()}`, time: now, actor: activeAccount?.name ?? "管理员", action: `重命名业务域 ${domain} 为 ${nextDomain}` }, ...demoState.audit],
+      });
+      setCreatedExperiments(nextCreatedExperiments);
+      saveCreatedRecords(nextCreatedExperiments);
+      setCreateDraft(nextDraft);
+      saveCreateDraft(nextDraft);
+      setRoleDraft((current: any) => current ? { ...current, domains: (current.domains ?? []).map((item: string) => item === domain ? nextDomain : item) } : current);
+      setMetricDraft((current: any) => current && current.domain === domain ? { ...current, domain: nextDomain } : current);
+      setFilters((current) => ({ ...current, businessLine: replaceFilterDomain(current.businessLine) }));
+      setFilterDraft((current) => ({ ...current, businessLine: replaceFilterDomain(current.businessLine) }));
+      setMetricFilters((current) => ({ ...current, domain: replaceFilterDomain(current.domain) }));
+      setSampleInput((current) => ({ ...current, businessLine: replaceFilterDomain(current.businessLine) }));
+      setSampleScope((current) => ({ ...current, domain: replaceFilterDomain(current.domain) }));
+      setEditingBusinessDomain(null);
+      showToast("业务域已重命名并全局生效");
+    };
+    const deleteBusinessDomain = (domain: string) => {
+      const usage = domainUsage(domain);
+      if (usage.length) return showToast(`业务域仍被${usage.join("、")}引用，无法删除`);
+      if (!window.confirm(`确认删除业务域“${domain}”吗？`)) return;
+      const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+      persistDemoState({ ...demoState, businessDomains: businessDomains.filter((item) => item !== domain), audit: [{ id: `DOMAIN-${Date.now()}`, time: now, actor: activeAccount?.name ?? "管理员", action: `删除业务域 ${domain}` }, ...demoState.audit] });
+      showToast("业务域已删除");
+    };
+    if (roleEditorMode && roleDraft) return <section className="module-page admin-editor-page" data-page-id="roleEditor"><div className="page-heading"><div><button className="back-button" onClick={() => setRoleEditorMode(null)}>返回</button><h1>{roleEditorMode === "new" ? "新增角色" : roleEditorMode === "edit" ? "编辑角色" : "查看角色"}</h1><p>配置角色的业务域范围和可执行操作。</p></div></div><Panel title="角色配置"><div className="form-grid"><label className="field vertical"><span>角色名称</span><input disabled={roleEditorMode === "view"} value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} /></label><label className="field vertical wide-field"><span>角色说明</span><input disabled={roleEditorMode === "view"} value={roleDraft.description} onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })} /></label></div><div className="permission-matrix"><section><div className="permission-section-heading"><div><h3>业务域范围</h3>{roleEditorMode !== "view" ? <span>勾选后作用于所有已分配该角色的人员</span> : null}</div>{roleEditorMode !== "view" ? <button className={`domain-icon-button ${businessDomainEditMode ? "active" : ""}`} data-business-domain-edit type="button" title={businessDomainEditMode ? "完成业务域编辑" : "编辑业务域"} aria-label={businessDomainEditMode ? "完成业务域编辑" : "编辑业务域"} onClick={() => { setBusinessDomainEditMode((current) => !current); setEditingBusinessDomain(null); setAddingBusinessDomain(false); }}><Pencil size={15} /></button> : null}</div><div className={`compact-choice-grid business-domain-choice-grid ${businessDomainEditMode ? "editing" : ""}`} data-business-domain-editor>{businessDomains.map((domain) => { const usage = domainUsage(domain); const editing = editingBusinessDomain === domain; return businessDomainEditMode ? <div className="business-domain-inline-editor" key={domain}><input aria-label={`重命名${domain}`} value={editing ? editingBusinessDomainName : domain} onFocus={() => { setEditingBusinessDomain(domain); setEditingBusinessDomainName(domain); }} onChange={(event) => { setEditingBusinessDomain(domain); setEditingBusinessDomainName(event.target.value); }} onBlur={() => { if (editingBusinessDomain === domain) saveBusinessDomainName(domain); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); saveBusinessDomainName(domain); } if (event.key === "Escape") { setEditingBusinessDomain(null); setEditingBusinessDomainName(domain); } }} /><button className="domain-icon-button danger" type="button" aria-label={`删除${domain}`} title={usage.length ? `已被${usage.join("、")}引用，无法删除` : `删除${domain}`} disabled={usage.length > 0} onClick={() => deleteBusinessDomain(domain)}><X size={15} /></button></div> : <label className="compact-choice" key={domain}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.domains.includes(domain)} onChange={() => setRoleDraft({ ...roleDraft, domains: roleDraft.domains.includes(domain) ? roleDraft.domains.filter((item: string) => item !== domain) : [...roleDraft.domains, domain] })} />{domain}</label>; })}{businessDomainEditMode ? addingBusinessDomain ? <input className="business-domain-new-input" autoFocus aria-label="新增业务域" placeholder="新业务域" value={businessDomainDraft} onChange={(event) => setBusinessDomainDraft(event.target.value)} onBlur={() => { if (businessDomainDraft.trim()) addBusinessDomain(); else setAddingBusinessDomain(false); }} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addBusinessDomain(); } if (event.key === "Escape") { setBusinessDomainDraft(""); setAddingBusinessDomain(false); } }} /> : <button className="domain-icon-button domain-add-button" data-add-business-domain type="button" aria-label="新增业务域" title="新增业务域" onClick={() => setAddingBusinessDomain(true)}><Plus size={16} /></button> : null}</div></section><section><h3>功能权限</h3><div className="compact-choice-grid permission-choice-grid">{ROLE_PERMISSION_OPTIONS.map((permission) => <label className="compact-choice" key={permission.value}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.permissions.includes(permission.value)} onChange={() => setRoleDraft({ ...roleDraft, permissions: roleDraft.permissions.includes(permission.value) ? roleDraft.permissions.filter((item: string) => item !== permission.value) : [...roleDraft.permissions, permission.value] })} />{permission.label}</label>)}</div></section></div>{roleEditorMode !== "view" ? <div className="drawer-actions admin-editor-actions"><button className="ghost-button" onClick={() => setRoleEditorMode(null)}>取消</button><button className="primary-button" onClick={saveRole}>保存</button></div> : null}</Panel></section>;
+    if (roleEditorMode && roleDraft) return <section className="module-page admin-editor-page" data-page-id="roleEditor"><div className="page-heading"><div><button className="back-button" onClick={() => setRoleEditorMode(null)}>返回</button><h1>{roleEditorMode === "new" ? "新增角色" : roleEditorMode === "edit" ? "编辑角色" : "查看角色"}</h1><p>配置角色的业务域范围和可执行操作。</p></div></div><Panel title="角色配置"><div className="form-grid"><label className="field vertical"><span>角色名称</span><input disabled={roleEditorMode === "view"} value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} /></label><label className="field vertical wide-field"><span>角色说明</span><input disabled={roleEditorMode === "view"} value={roleDraft.description} onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })} /></label></div><div className="permission-matrix"><section><div className="permission-section-heading"><h3>业务域范围</h3>{roleEditorMode !== "view" ? <span>勾选后作用于所有已分配该角色的人员</span> : null}</div><div className="compact-choice-grid">{businessDomains.map((domain) => <label className="compact-choice" key={domain}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.domains.includes(domain)} onChange={() => setRoleDraft({ ...roleDraft, domains: roleDraft.domains.includes(domain) ? roleDraft.domains.filter((item: string) => item !== domain) : [...roleDraft.domains, domain] })} />{domain}</label>)}</div>{roleEditorMode !== "view" ? <div className="business-domain-manager" data-business-domain-manager><div className="business-domain-manager-head"><h4>管理业务域</h4><span>新增、重命名后立即全局生效</span></div><div className="business-domain-add"><input aria-label="新增业务域" placeholder="输入业务域名称" value={businessDomainDraft} onChange={(event) => setBusinessDomainDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addBusinessDomain(); } }} /><button className="ghost-button" type="button" onClick={addBusinessDomain}>新增</button></div><div className="business-domain-list">{businessDomains.map((domain) => { const usage = domainUsage(domain); const editing = editingBusinessDomain === domain; return <div className="business-domain-row" key={domain}>{editing ? <input aria-label={`重命名${domain}`} value={editingBusinessDomainName} onChange={(event) => setEditingBusinessDomainName(event.target.value)} /> : <strong>{domain}</strong>}<div className="business-domain-actions">{editing ? <><button type="button" className="link-button" onClick={() => saveBusinessDomainName(domain)}>保存</button><button type="button" className="link-button" onClick={() => setEditingBusinessDomain(null)}>取消</button></> : <button type="button" className="link-button" onClick={() => { setEditingBusinessDomain(domain); setEditingBusinessDomainName(domain); }}>重命名</button>}<button type="button" className="link-button danger-link" disabled={usage.length > 0} title={usage.length ? `已被${usage.join("、")}引用，无法删除` : "删除业务域"} onClick={() => deleteBusinessDomain(domain)}>删除</button></div></div>; })}</div></div> : null}</section><section><h3>功能权限</h3><div className="compact-choice-grid permission-choice-grid">{ROLE_PERMISSION_OPTIONS.map((permission) => <label className="compact-choice" key={permission.value}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.permissions.includes(permission.value)} onChange={() => setRoleDraft({ ...roleDraft, permissions: roleDraft.permissions.includes(permission.value) ? roleDraft.permissions.filter((item: string) => item !== permission.value) : [...roleDraft.permissions, permission.value] })} />{permission.label}</label>)}</div></section></div>{roleEditorMode !== "view" ? <div className="drawer-actions admin-editor-actions"><button className="ghost-button" onClick={() => setRoleEditorMode(null)}>取消</button><button className="primary-button" onClick={saveRole}>保存</button></div> : null}</Panel></section>;
     if (roleEditorMode && roleDraft) return <section className="module-page admin-editor-page" data-page-id="roleEditor"><div className="page-heading"><div><button className="back-button" onClick={() => setRoleEditorMode(null)}>返回</button><h1>{roleEditorMode === "new" ? "新增角色" : roleEditorMode === "edit" ? "编辑角色" : "查看角色"}</h1><p>配置角色的业务域范围和可执行操作。</p></div></div><Panel title="角色配置"><div className="form-grid"><label className="field vertical"><span>角色名称</span><input disabled={roleEditorMode === "view"} value={roleDraft.name} onChange={(event) => setRoleDraft({ ...roleDraft, name: event.target.value })} /></label><label className="field vertical wide-field"><span>角色说明</span><input disabled={roleEditorMode === "view"} value={roleDraft.description} onChange={(event) => setRoleDraft({ ...roleDraft, description: event.target.value })} /></label></div><div className="permission-matrix"><section><h3>业务域范围</h3><div className="compact-choice-grid">{ALL_DOMAINS.map((domain) => <label className="compact-choice" key={domain}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.domains.includes(domain)} onChange={() => setRoleDraft({ ...roleDraft, domains: roleDraft.domains.includes(domain) ? roleDraft.domains.filter((item: string) => item !== domain) : [...roleDraft.domains, domain] })} />{domain}</label>)}</div></section><section><h3>功能权限</h3><div className="compact-choice-grid permission-choice-grid">{["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "import.submit", "monitor.view"].map((permission) => <label className="compact-choice" key={permission}><input disabled={roleEditorMode === "view"} type="checkbox" checked={roleDraft.permissions.includes(permission)} onChange={() => setRoleDraft({ ...roleDraft, permissions: roleDraft.permissions.includes(permission) ? roleDraft.permissions.filter((item: string) => item !== permission) : [...roleDraft.permissions, permission] })} />{permission}</label>)}</div></section></div>{roleEditorMode !== "view" ? <div className="drawer-actions admin-editor-actions"><button className="ghost-button" onClick={() => setRoleEditorMode(null)}>取消</button><button className="primary-button" onClick={saveRole}>保存</button></div> : null}</Panel></section>;
-    return <section className="module-page" data-page-id="roles"><div className="page-heading"><div><h1>角色管理</h1><p>配置使用者角色的业务域范围和功能权限。</p></div><button className="primary-button" onClick={() => openRole({ id: "", name: "", description: "", domains: ["增长"], permissions: ["experiment.view"], status: "active" }, "new")}><Plus size={16} />新增角色</button></div><div className="ledger-filter-bar" data-role-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索角色</span><input data-role-filter="keyword" placeholder="角色名称 / 说明" value={roleFilters.keyword} onChange={(event) => setRoleFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-role-filter="status" value={roleFilters.status} onChange={(event) => setRoleFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setRoleFilters(defaultRoleFilters)}><RefreshCcw size={16} /> 重置</button></div></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>角色</th><th>说明</th><th>业务域范围</th><th>授权动作</th><th>已分配人员</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredRoles.map((role) => <tr key={role.id}><td><strong>{role.name}</strong><span className="mono">{role.id}</span></td><td>{role.description}</td><td>{role.domains.join("、")}</td><td>{role.permissions.length} 项</td><td>{accounts.filter((account) => account.roleIds?.includes(role.id)).length}</td><td>{role.status === "active" ? "启用" : "停用"}</td><td>{role.updatedAt}</td><td><div className="row-actions"><button onClick={() => openRole(role, "view")}>查看</button><button onClick={() => openRole(role, "edit")}>编辑</button><button onClick={() => setRoleStatus(role)}>{role.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deleteRole(role)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
+    return <section className="module-page" data-page-id="roles"><div className="page-heading"><div><h1>角色管理</h1><p>配置使用者角色的业务域范围和功能权限。</p></div><button className="primary-button" onClick={() => openRole({ id: "", name: "", description: "", domains: businessDomains.slice(0, 1), permissions: ["experiment.view"], status: "active" }, "new")}><Plus size={16} />新增角色</button></div><div className="ledger-filter-bar" data-role-filters><div className="ledger-filter-grid"><label className="field vertical ledger-keyword-field"><span className="sr-only">搜索角色</span><input data-role-filter="keyword" placeholder="角色名称 / 说明" value={roleFilters.keyword} onChange={(event) => setRoleFilters((current) => ({ ...current, keyword: event.target.value }))} /></label><label className="field vertical ledger-select-field"><span className="sr-only">状态</span><select data-role-filter="status" value={roleFilters.status} onChange={(event) => setRoleFilters((current) => ({ ...current, status: event.target.value }))}><option value="all">状态</option><option value="active">启用</option><option value="disabled">停用</option></select></label></div><div className="ledger-filter-actions"><button className="ghost-button" type="button" onClick={() => setRoleFilters(defaultRoleFilters)}><RefreshCcw size={16} /> 重置</button></div></div><div className="table-wrap"><table className="data-table ledger-table sticky-actions"><thead><tr><th>角色</th><th>说明</th><th>业务域范围</th><th>授权动作</th><th>已分配人员</th><th>状态</th><th>更新时间</th><th>操作</th></tr></thead><tbody>{filteredRoles.map((role) => <tr key={role.id}><td><strong>{role.name}</strong><span className="mono">{role.id}</span></td><td>{role.description}</td><td>{role.domains.join("、")}</td><td>{role.permissions.length} 项</td><td>{accounts.filter((account) => account.roleIds?.includes(role.id)).length}</td><td>{role.status === "active" ? "启用" : "停用"}</td><td>{role.updatedAt}</td><td><div className="row-actions"><button onClick={() => openRole(role, "view")}>查看</button><button onClick={() => openRole(role, "edit")}>编辑</button><button onClick={() => setRoleStatus(role)}>{role.status === "active" ? "停用" : "启用"}</button><button className="ledger-delete-action" onClick={() => deleteRole(role)}>删除</button></div></td></tr>)}</tbody></table></div></section>;
   }
 
   function renderPeople() {

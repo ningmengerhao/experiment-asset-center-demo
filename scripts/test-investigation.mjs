@@ -33,7 +33,7 @@ assert.throws(() => { allowedTransitions.idle = ["closed"]; }, TypeError, "trans
 assert.deepEqual(allowedTransitions.investigating, investigatingTargets, "mutation does not alter transition rules");
 
 const hash = buildInvestigationHash("investigate", context);
-assert.equal(hash, "#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
+assert.equal(hash, "#investigate?experiment=EXP-240611-017&case=CASE-240820-001&alert=ALT-003&range=14d&focus=rollout");
 
 const parsed = parseInvestigationLocation(hash);
 assert.equal(parsed.tab, "investigate");
@@ -60,12 +60,12 @@ for (const [name, location] of invalidLocationCases) {
 assert.equal(parseInvestigationLocation("#governance").tab, "home");
 assert.equal(parseInvestigationLocation("#permission").tab, "roles");
 assert.equal(parseInvestigationLocation("#create?step=sample").tab, "create");
-assert.equal(buildInvestigationHash("not-a-tab", context), "#home?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout");
+assert.equal(buildInvestigationHash("not-a-tab", context), "#home?experiment=EXP-240611-017&case=CASE-240820-001&alert=ALT-003&range=14d&focus=rollout");
 
 const buildCases = [
-  ["valid context", context, "#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=rollout"],
+  ["valid context", context, "#investigate?experiment=EXP-240611-017&case=CASE-240820-001&alert=ALT-003&range=14d&focus=rollout"],
   ["dangerous experiment", { ...context, experimentId: "EXP&<script>" }, "#investigate"],
-  ["dangerous alert", { ...context, alertId: "ALT&<script>" }, "#investigate?experiment=EXP-240611-017&range=14d&focus=rollout"],
+  ["dangerous alert", { ...context, alertId: "ALT&<script>" }, "#investigate?experiment=EXP-240611-017&case=CASE-240820-001&range=14d&focus=rollout"],
 ];
 for (const [name, input, expected] of buildCases) {
   const built = buildInvestigationHash("investigate", input);

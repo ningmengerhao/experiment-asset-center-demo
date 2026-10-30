@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
+import { INITIAL_IMPORT_BATCHES, INITIAL_METRICS, INITIAL_SAMPLE_SOURCES, ROLE_PERMISSION_OPTIONS, appendFilterCondition, canAccess, canApproveExperimentRequest, canListExperiment, canRequestExperimentPermission, canRequestMetricEdit, createInitialDemoState, getAccount, hasDomainAccess, loadDemoState, resolveHistoricalSnapshot, sortExperimentsByResourceAccess, validateFilterCondition, validateSampleSql } from "../src/demo-access.mjs";
 
 const state = createInitialDemoState();
+assert.deepEqual(state.businessDomains, ["增长", "会员", "推荐", "交易", "搜索"], "fresh demo state must persist the global business-domain catalog");
+assert.equal(ROLE_PERMISSION_OPTIONS.find((option) => option.value === "experiment.view")?.label, "实验管理-查看", "role permissions must expose module-action Chinese UI labels");
 const admin = getAccount("admin.zhao", state);
 const fullEditor = getAccount("editor.wu", state);
 const owner = getAccount("owner.chen", state);
@@ -65,6 +67,20 @@ storage.set("experiment-asset-demo-access-v1", JSON.stringify({ requests: [{ id:
 const migratedState = loadDemoState({ getItem: (key) => storage.get(key) ?? null });
 assert.deepEqual(migratedState.requests[0].permissions, ["metric.view"], "legacy scalar request permissions must migrate");
 assert.equal(migratedState.accounts.every((account) => ["admin", "user"].includes(account.role)), true, "legacy accounts must migrate to the two account types");
+assert.equal(migratedState.businessDomains.includes("增长"), true, "legacy storage must receive the default business-domain catalog");
+
+const catalogStorage = new Map();
+catalogStorage.set("experiment-asset-demo-access-v1", JSON.stringify({
+  businessDomains: ["增长运营"],
+  roles: [{ id: "role-custom", name: "自定义", domains: ["增长运营"], permissions: ["experiment.view"], status: "active" }],
+  accounts: [{ id: "custom.viewer", name: "自定义查看者", role: "user", roleIds: ["role-custom"], domains: ["增长运营"], ownedExperimentIds: [], status: "active" }],
+  experimentOverrides: { "EXP-CUSTOM": { id: "EXP-CUSTOM", businessLine: "增长运营" } },
+}));
+const catalogState = loadDemoState({ getItem: (key) => catalogStorage.get(key) ?? null });
+const catalogViewer = getAccount("custom.viewer", catalogState);
+assert.deepEqual(catalogState.businessDomains, ["增长运营"], "saved business-domain catalogs must not be replaced by defaults");
+assert.equal(hasDomainAccess(catalogState, catalogViewer, { domain: "增长运营" }), true, "new role-domain assignments must take effect globally");
+assert.equal(catalogState.experimentOverrides["EXP-CUSTOM"].businessLine, "增长运营", "experiment overrides must survive state reloads");
 
 assert.equal(validateSampleSql("SELECT user_id FROM growth.user_activity_daily WHERE dt BETWEEN '${BATCH_DATE_START}' AND '${BATCH_DATE_END}'").valid, true);
 assert.equal(validateSampleSql("SELECT * FROM t WHERE dt='${BATCH_DATE}'").valid, false);

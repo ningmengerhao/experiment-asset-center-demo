@@ -17,9 +17,8 @@ const screenshotTargets = {
   mobile: path.join(projectRoot, "dist", "ui-check-investigation-mobile.png"),
 };
 const userTabs = [
-  ["home", "首页", "home-dashboard"],
+  ["home", "实验总览", "home-dashboard"],
   ["metrics", "指标管理", "metric-library"],
-  ["investigate", "监控排查", "alert-queue"],
   ["list", "实验清单", "experiment-ledger"],
 ];
 const viewports = [
@@ -444,26 +443,14 @@ async function run() {
     await waitFor("demo account selector", () => evaluate(`Boolean(document.querySelector(".demo-account-grid"))`));
     await physicalClick(".demo-account-grid button:first-child");
     await waitFor("demo admin login", () => evaluate(`Boolean(document.querySelector('[data-page-id="home"]'))`));
-    await expectPageContract("home", "首页", "home-dashboard");
-    assert.equal(await evaluate(`document.querySelector('[data-nav-id="home"]')?.textContent.trim()`), "首页", "Empty route must render as the dashboard navigation item.");
+    await expectPageContract("home", "实验总览", "home-dashboard");
+    assert.equal(await evaluate(`document.querySelector('[data-nav-id="home"]')?.textContent.trim()`), "实验总览", "Empty route must render as the dashboard navigation item.");
     pass("empty URL opens the dashboard home");
 
     await openUrl(`${distUrl}#list`);
-    await seedInvestigationContext();
-    await openUrl(`${distUrl}#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d`);
-    await expectPageContract("investigate", "监控排查", "alert-queue");
-    assert.equal(await evaluate(`location.hash`), "#investigate?experiment=EXP-240611-017&alert=ALT-003&range=14d&focus=overview", "Deep-link investigation URL mismatch.");
-    assert.equal(await evaluate(`!document.querySelector("[data-investigation-experiment]")`), true, "The global investigation context bar must remain hidden.");
-    pass("deep link preserves the current investigation without a global context bar");
-
-    await physicalClick(`.current-investigation-actions [data-evidence-focus="relationship"]`);
-    await waitFor("relationship detail tab", () => evaluate(`document.querySelector('[data-page-id="detail"]')?.dataset.detailExperiment === "EXP-240611-017" && document.querySelector('[data-detail-tab="lineage"]')?.getAttribute("aria-selected") === "true"`));
-    assert.equal(await evaluate(`location.hash.startsWith("#investigate?experiment=EXP-240611-017")`), true, "Detail must retain the source hash.");
-    pass("investigation opens the current experiment relationship detail tab");
-
-    await physicalClick(".back-link");
-    await expectPageContract("investigate", "监控排查", "alert-queue");
-    pass("detail returns to its source page without changing the hash");
+    await expectPageContract("list", "实验清单", "experiment-ledger");
+    assert.equal(await evaluate(`!document.querySelector('[data-nav-id="investigate"]')`), true, "The legacy monitoring entry must be absent from navigation.");
+    pass("legacy monitoring navigation is removed");
 
     await physicalClick("#headerHelpButton");
     await waitFor("help dialog", () => evaluate(`Boolean(document.querySelector("#helpDrawer [role=dialog]"))`));
@@ -477,7 +464,7 @@ async function run() {
     await evaluate(`sessionStorage.clear(); localStorage.removeItem("experiment-asset-created-records-v1"); localStorage.removeItem("experiment-asset-create-draft-v1")`);
     await openUrl(`${distUrl}#invalid-route`);
     await waitFor("invalid route normalization", () => evaluate(`location.hash === "#home"`));
-    await expectPageContract("home", "首页", "home-dashboard");
+    await expectPageContract("home", "实验总览", "home-dashboard");
     pass("invalid route normalizes to #home");
 
     await physicalClick("[data-open-create-experiment]");
@@ -677,6 +664,18 @@ async function run() {
 
     await openUrl(`${distUrl}#roles`);
     await waitFor("administrator persists after refresh", () => evaluate(`document.querySelector('[data-page-id="roles"]')?.textContent.includes("角色管理")`));
+    await physicalClick('[data-page-id="roles"] .row-actions button:nth-child(2)');
+    await waitFor("business domain editor", () => evaluate(`Boolean(document.querySelector('[data-business-domain-editor]'))`));
+    assert.equal(await evaluate(`(() => { const editor = document.querySelector('[data-page-id="roleEditor"]'); return editor?.textContent.includes("实验管理-查看") && editor?.textContent.includes("实验管理-状态操作") && !editor?.textContent.includes("experiment.view"); })()`), true, "Role editor permissions must use module-action Chinese labels.");
+    await physicalClick('[data-business-domain-edit]');
+    await physicalClick('[data-add-business-domain]');
+    await replaceText('[data-business-domain-editor] input[aria-label="新增业务域"]', "演示业务域");
+    await evaluate(`document.querySelector('[data-business-domain-editor] input[aria-label="新增业务域"]')?.blur()`);
+    await waitFor("business domain added", () => evaluate(`JSON.parse(localStorage.getItem("experiment-asset-demo-access-v1")).businessDomains.includes("演示业务域")`));
+    await replaceText('[data-business-domain-editor] input[aria-label="重命名演示业务域"]', "演示业务域二期");
+    await evaluate(`document.querySelector('[data-business-domain-editor] input[aria-label="重命名演示业务域"]')?.blur()`);
+    await waitFor("business domain renamed", () => evaluate(`JSON.parse(localStorage.getItem("experiment-asset-demo-access-v1")).businessDomains.includes("演示业务域二期")`));
+    pass("role editors manage global business domains and show Chinese permission labels");
     await openUrl(`${distUrl}#people`);
     await waitFor("people management", () => evaluate(`document.querySelector('[data-page-id="people"]')?.textContent.includes("人员管理")`));
     pass("administrator role and people pages persist across reloads");

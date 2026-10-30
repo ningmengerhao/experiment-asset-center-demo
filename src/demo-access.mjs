@@ -2,11 +2,42 @@ export const DEMO_STATE_STORAGE_KEY = "experiment-asset-demo-access-v1";
 
 export const ALL_DOMAINS = ["增长", "会员", "推荐", "交易", "搜索"];
 
+export const ROLE_PERMISSION_OPTIONS = [
+  { value: "experiment.view", label: "实验管理-查看" },
+  { value: "experiment.create", label: "实验管理-新建" },
+  { value: "experiment.edit", label: "实验管理-编辑" },
+  { value: "experiment.lifecycle", label: "实验管理-状态操作" },
+  { value: "metric.view", label: "指标管理-查看" },
+  { value: "metric.edit", label: "指标管理-编辑" },
+  { value: "metric.status", label: "指标管理-启用/停用" },
+  { value: "metric.delete", label: "指标管理-删除" },
+  { value: "sample.use", label: "样本来源-使用" },
+  { value: "import.submit", label: "批量导入-提交" },
+  { value: "monitor.view", label: "异常排查-查看" },
+];
+
+function normalizeDomainList(values, fallback = ALL_DOMAINS) {
+  const source = Array.isArray(values) ? values : fallback;
+  return Array.from(new Set(source.map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
+
+function collectLegacyDomains(value, defaults) {
+  const domains = [
+    ...(Array.isArray(value?.businessDomains) ? value.businessDomains : []),
+    ...(value?.roles ?? []).flatMap((role) => role?.domains ?? []),
+    ...(value?.accounts ?? []).flatMap((account) => account?.domains ?? []),
+    ...(value?.metrics ?? []).map((metric) => metric?.domain),
+    ...(value?.sampleSources ?? []).map((source) => source?.domain),
+    ...(!Array.isArray(value?.businessDomains) ? defaults.businessDomains : []),
+  ];
+  return normalizeDomainList(domains, defaults.businessDomains);
+}
+
 export const INITIAL_ROLES = [
-  { id: "role-full-editor", name: "全业务编辑者", description: "维护全部业务域的实验、指标、样本来源和导入", domains: ALL_DOMAINS, permissions: ["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "import.submit", "monitor.view"], status: "active", updatedAt: "2026-10-22 20:00" },
-  { id: "role-experiment-editor", name: "实验编辑者", description: "维护授权业务域的实验和导入记录", domains: ["增长", "会员"], permissions: ["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "sample.use", "import.submit", "monitor.view"], status: "active", updatedAt: "2026-10-22 20:00" },
-  { id: "role-metric-editor", name: "指标编辑者", description: "维护授权业务域的指标配置", domains: ["增长", "交易"], permissions: ["experiment.view", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "monitor.view"], status: "active", updatedAt: "2026-10-22 20:00" },
-  { id: "role-viewer", name: "只读使用者", description: "查看授权范围内的实验与指标", domains: ["增长"], permissions: ["experiment.view", "metric.view", "monitor.view"], status: "active", updatedAt: "2026-10-22 20:00" },
+  { id: "role-full-editor", name: "全业务编辑者", description: "维护全部业务域的实验、指标、样本来源和导入", domains: ALL_DOMAINS, permissions: ["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use", "import.submit"], status: "active", updatedAt: "2026-10-22 20:00" },
+  { id: "role-experiment-editor", name: "实验编辑者", description: "维护授权业务域的实验和导入记录", domains: ["增长", "会员"], permissions: ["experiment.view", "experiment.create", "experiment.edit", "experiment.lifecycle", "metric.view", "sample.use", "import.submit"], status: "active", updatedAt: "2026-10-22 20:00" },
+  { id: "role-metric-editor", name: "指标编辑者", description: "维护授权业务域的指标配置", domains: ["增长", "交易"], permissions: ["experiment.view", "metric.view", "metric.edit", "metric.status", "metric.delete", "sample.use"], status: "active", updatedAt: "2026-10-22 20:00" },
+  { id: "role-viewer", name: "只读使用者", description: "查看授权范围内的实验与指标", domains: ["增长"], permissions: ["experiment.view", "metric.view"], status: "active", updatedAt: "2026-10-22 20:00" },
 ];
 
 export const INITIAL_ACCOUNTS = [
@@ -70,7 +101,7 @@ export const INITIAL_IMPORT_BATCHES = [
 ];
 
 export function createInitialDemoState() {
-  return { sessionAccountId: null, accounts: INITIAL_ACCOUNTS.map((item) => ({ ...item, roleIds: [...item.roleIds], domains: [...item.domains], ownedExperimentIds: [...item.ownedExperimentIds] })), roles: INITIAL_ROLES.map((item) => ({ ...item, domains: [...item.domains], permissions: [...item.permissions] })), metrics: INITIAL_METRICS.map((item) => ({ ...item })), sampleSources: INITIAL_SAMPLE_SOURCES.map((item) => ({ ...item })), grants: INITIAL_GRANTS.map((item) => ({ ...item })), requests: [], importBatches: INITIAL_IMPORT_BATCHES.map((item) => ({ ...item, totalCount: item.issues.length, successCount: item.issues.filter((issue) => issue.level === "通过").length, failureCount: item.issues.filter((issue) => issue.level !== "通过").length, issues: item.issues.map((issue) => ({ ...issue, rowData: {} })) })), audit: [] };
+  return { sessionAccountId: null, businessDomains: [...ALL_DOMAINS], accounts: INITIAL_ACCOUNTS.map((item) => ({ ...item, roleIds: [...item.roleIds], domains: [...item.domains], ownedExperimentIds: [...item.ownedExperimentIds] })), roles: INITIAL_ROLES.map((item) => ({ ...item, domains: [...item.domains], permissions: [...item.permissions] })), metrics: INITIAL_METRICS.map((item) => ({ ...item })), sampleSources: INITIAL_SAMPLE_SOURCES.map((item) => ({ ...item })), grants: INITIAL_GRANTS.map((item) => ({ ...item })), requests: [], importBatches: INITIAL_IMPORT_BATCHES.map((item) => ({ ...item, totalCount: item.issues.length, successCount: item.issues.filter((issue) => issue.level === "通过").length, failureCount: item.issues.filter((issue) => issue.level !== "通过").length, issues: item.issues.map((issue) => ({ ...issue, rowData: {} })) })), experimentOverrides: {}, analysisCases: [], collaborationNotices: [], audit: [] };
 }
 
 export function loadDemoState(storage = globalThis.localStorage) {
@@ -89,7 +120,7 @@ export function loadDemoState(storage = globalThis.localStorage) {
       ? value.requests.map((request) => ({ ...request, permissions: Array.isArray(request.permissions) ? request.permissions : request.permission ? [request.permission] : [] }))
       : [];
     const importBatches = Array.isArray(value.importBatches) ? value.importBatches.map((batch) => ({ ...batch, totalCount: batch.totalCount ?? batch.issues?.length ?? 0, successCount: batch.successCount ?? batch.issues?.filter((issue) => issue.level === "通过").length ?? 0, failureCount: batch.failureCount ?? batch.issues?.filter((issue) => issue.level !== "通过").length ?? 0, issues: Array.isArray(batch.issues) ? batch.issues.map((issue) => ({ ...issue, rowData: issue.rowData ?? {} })) : [] })) : defaults.importBatches;
-    return { ...defaults, ...value, accounts, roles, metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests, importBatches, audit: Array.isArray(value.audit) ? value.audit : [] };
+    return { ...defaults, ...value, businessDomains: collectLegacyDomains(value, defaults), accounts, roles, metrics, sampleSources: Array.isArray(value.sampleSources) ? value.sampleSources : defaults.sampleSources, grants: Array.isArray(value.grants) ? value.grants : defaults.grants, requests, importBatches, experimentOverrides: value.experimentOverrides && typeof value.experimentOverrides === "object" && !Array.isArray(value.experimentOverrides) ? value.experimentOverrides : {}, analysisCases: Array.isArray(value.analysisCases) ? value.analysisCases : [], collaborationNotices: Array.isArray(value.collaborationNotices) ? value.collaborationNotices : [], audit: Array.isArray(value.audit) ? value.audit : [] };
   } catch {
     return createInitialDemoState();
   }

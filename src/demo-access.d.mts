@@ -4,6 +4,7 @@ export const TEST_ACCOUNTS: DemoAccount[];
 export const INITIAL_ACCOUNTS: DemoAccount[];
 export const INITIAL_ROLES: any[];
 export const ALL_DOMAINS: string[];
+export const ROLE_PERMISSION_OPTIONS: Array<{ value: string; label: string }>;
 export const INITIAL_METRICS: any[];
 export const INITIAL_SAMPLE_SOURCES: any[];
 export const INITIAL_IMPORT_BATCHES: any[];

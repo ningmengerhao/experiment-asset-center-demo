@@ -2,6 +2,23 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-10-30 - Anomaly Analysis and Dynamic Business Domains (v0.6.11)
+
+Changed:
+
+- Replaced the legacy monitoring navigation with editable-experiment anomaly analysis, including inversion detection, layered drilldown, all-running-experiment verification, privacy-safe candidate projections, and owner collaboration notices.
+- Restored approval visibility in the message center, added notification read states, and expanded the anomaly demonstration data used by the local accounts.
+- Moved business domains into a persistent global catalog. Administrators can add, rename, and safely remove unreferenced domains from role editing; renames update associated roles, experiments, metrics, sample sources, drafts, filters, and import validation.
+- Changed role permission labels to module-action Chinese text and condensed business-domain management into the inline edit control next to the role scope.
+
+## 2026-10-29 - Effect Inversion Drilldown Analysis
+
+Changed:
+
+- Replaced the sidebar monitoring workbench and its alert, attribution, and rule-configuration views with an effect-inversion analysis case opened only from an editable experiment detail page.
+- Added 7/14/30 day inversion detection, expected core-metric direction, stratified loss drilldown, all-running-experiment verification, fixed high-confidence criteria, and privacy-preserving candidate projections.
+- Added deduplicated in-app collaboration notices for high-confidence candidate owners; notices intentionally omit the affected experiment identity and can only be marked read.
+
 ## 2026-10-23 - Copy Flow and Edit Upgrade Requests (v0.6.10)
 
 Changed:
