@@ -146,11 +146,12 @@ export function scanRunningExperiments(target, experiments, relationships = []) 
         && signals.sampleOverlap >= 0.7
         && signals.rolloutAlignment >= 0.7
         && (signals.layerOverlap >= 0.6 || signals.metricSync >= 0.7);
+      const status = highConfidence ? "high_confidence" : score >= 60 ? "pending_verification" : "low_relevance";
       return {
         experimentId: candidate.id,
         owner: candidate.owner,
         score: Math.round(score * 10) / 10,
-        status: highConfidence ? "high_confidence" : "pending_verification",
+        status,
         ...signals,
         registeredRelation,
       };
@@ -160,6 +161,7 @@ export function scanRunningExperiments(target, experiments, relationships = []) 
 
 export function projectCandidateVerification(verification, experiment, canView) {
   const genericConclusion = "交叉验证检测到样本、放量或分流信号重叠，建议持续核验。";
+  const lowRelevanceConclusion = "交叉信号较弱，当前归为低相关，仅供追溯参考。";
   if (canView) {
     return {
       ...verification,
@@ -169,7 +171,7 @@ export function projectCandidateVerification(verification, experiment, canView) 
       strategy: `${experiment.trafficLayer} · ${experiment.userGroup}`,
       metric: experiment.coreMetric,
       rollout: experiment.rollout,
-      conclusion: genericConclusion,
+      conclusion: verification.status === "low_relevance" ? lowRelevanceConclusion : genericConclusion,
     };
   }
   return {
@@ -180,7 +182,7 @@ export function projectCandidateVerification(verification, experiment, canView) 
     riskCategory: "交叉流量风险",
     conclusion: verification.status === "high_confidence"
       ? "自动定位，建议关注：多项交叉信号达到高置信阈值。"
-      : genericConclusion,
+      : verification.status === "low_relevance" ? lowRelevanceConclusion : genericConclusion,
   };
 }
 
@@ -188,7 +190,7 @@ export function isCollaborationNoticeEligible(verification) {
   return Number(verification?.score) >= 60;
 }
 
-export function createCollaborationNotice({ caseId, verification, targetExperimentId, createdAt }) {
+export function createCollaborationNotice({ caseId, verification, targetExperimentId, createdAt, sourceUpdatedAt = createdAt }) {
   return {
     id: `notice-${caseId}-${verification.experimentId}`,
     caseId,
@@ -196,6 +198,7 @@ export function createCollaborationNotice({ caseId, verification, targetExperime
     targetExperimentId,
     recipient: verification.owner,
     createdAt,
+    sourceUpdatedAt,
     read: false,
     text: verification.status === "high_confidence"
       ? "您负责的实验可能影响另一实验，已自动定位，建议关注。"
@@ -204,14 +207,23 @@ export function createCollaborationNotice({ caseId, verification, targetExperime
 }
 
 export function buildMissingCollaborationNotices(cases, existingNotices = []) {
-  const knownNoticeKeys = new Set(existingNotices.map((notice) => `${notice.caseId}:${notice.candidateExperimentId}`));
   return (cases ?? []).flatMap((caseRecord) => (caseRecord.verifications ?? [])
     .filter(isCollaborationNoticeEligible)
+    .filter((verification) => {
+      const relatedNotices = existingNotices.filter((notice) => notice.candidateExperimentId === verification.experimentId
+        && notice.targetExperimentId === caseRecord.experimentId);
+      if (relatedNotices.some((notice) => !notice.read)) return false;
+      const latestSignalAt = relatedNotices.reduce((latest, notice) => {
+        const signalAt = notice.sourceUpdatedAt ?? notice.createdAt;
+        return signalAt > latest ? signalAt : latest;
+      }, "");
+      return !latestSignalAt || caseRecord.updatedAt > latestSignalAt;
+    })
     .map((verification) => createCollaborationNotice({
       caseId: caseRecord.id,
       verification,
       targetExperimentId: caseRecord.experimentId,
       createdAt: caseRecord.updatedAt,
-    }))
-    .filter((notice) => !knownNoticeKeys.has(`${notice.caseId}:${notice.candidateExperimentId}`)));
+      sourceUpdatedAt: caseRecord.updatedAt,
+    })));
 }

@@ -18,7 +18,7 @@ assert.equal(detectEffectInversion(null, 0.42, "up").reason, "当前范围未定
 assert.equal(detectEffectInversion({ ...event, pValue: 0.08 }, 0.28, "up").detected, false);
 assert.equal(detectEffectInversion({ ...event, consecutiveWindows: 1 }, 0.28, "up").detected, false);
 const target = { id: "EXP-240611-017", status: "running" };
-const candidates = scanRunningExperiments(target, [target, { id: "EXP-240610-001", status: "running", owner: "赵晨" }, { id: "EXP-240615-022", status: "running", owner: "吴雅" }], [{ sourceExperimentId: target.id, targetExperimentId: "EXP-240610-001" }, { sourceExperimentId: target.id, targetExperimentId: "EXP-240615-022" }]);
+const candidates = scanRunningExperiments(target, [target, { id: "EXP-240610-001", status: "running", owner: "赵晨" }, { id: "EXP-240615-022", status: "running", owner: "吴雅" }, { id: "EXP-LOW", status: "running", owner: "低相关负责人" }], [{ sourceExperimentId: target.id, targetExperimentId: "EXP-240610-001" }, { sourceExperimentId: target.id, targetExperimentId: "EXP-240615-022" }]);
 assert.equal(candidates[0].experimentId, "EXP-240610-001");
 assert.equal(candidates[0].status, "high_confidence");
 assert.equal(projectCandidateVerification(candidates[0], { id: candidates[0].experimentId, name: "受限实验", owner: "赵晨" }, false).disclosure, "identified");
@@ -33,9 +33,18 @@ assert.equal(projectCandidateVerification(candidates[0], { id: candidates[0].exp
 assert.equal(buildLayerDrilldowns()[0].contribution, 42);
 assert.equal(isCollaborationNoticeEligible(candidates[0]), true);
 assert.equal(isCollaborationNoticeEligible(candidates[1]), true);
+const lowCandidate = candidates.find((candidate) => candidate.experimentId === "EXP-LOW");
+assert.equal(lowCandidate.status, "low_relevance", "scores below 60 must be low relevance rather than pending verification");
+assert.equal(isCollaborationNoticeEligible(lowCandidate), false, "low-relevance candidates must not notify owners");
+assert.match(projectCandidateVerification(lowCandidate, { id: lowCandidate.experimentId, name: "低相关实验", owner: "低相关负责人" }, false).conclusion, /低相关/);
 assert.equal(createCollaborationNotice({ caseId: "CASE-1", verification: candidates[0], targetExperimentId: target.id, createdAt: "2026-10-29 10:00" }).text, "您负责的实验可能影响另一实验，已自动定位，建议关注。");
 assert.equal(createCollaborationNotice({ caseId: "CASE-1", verification: candidates[1], targetExperimentId: target.id, createdAt: "2026-10-29 10:00" }).text, "您负责的实验与另一实验存在待核验交叉信号，请关注。");
 const backfilled = buildMissingCollaborationNotices([{ id: "CASE-1", experimentId: target.id, updatedAt: "2026-10-29 10:00", verifications: candidates }], []);
 assert.equal(backfilled.length, 2);
 assert.equal(buildMissingCollaborationNotices([{ id: "CASE-1", experimentId: target.id, updatedAt: "2026-10-29 10:00", verifications: candidates }], backfilled).length, 0);
+const readNotice = { ...backfilled[0], read: true };
+const laterCase = { id: "CASE-2", experimentId: target.id, updatedAt: "2026-10-30 10:00", verifications: [candidates[0]] };
+assert.equal(buildMissingCollaborationNotices([laterCase], [readNotice]).length, 1, "a processed conflict must notify again for a later signal");
+assert.equal(buildMissingCollaborationNotices([laterCase], [{ ...readNotice, read: false }]).length, 0, "an unprocessed conflict must not notify repeatedly");
+assert.equal(buildMissingCollaborationNotices([{ ...laterCase, updatedAt: readNotice.sourceUpdatedAt }], [readNotice]).length, 0, "reading a notice must not re-send the same historical signal");
 console.log("Anomaly-analysis tests passed.");

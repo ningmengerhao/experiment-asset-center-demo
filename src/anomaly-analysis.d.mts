@@ -1,9 +1,9 @@
 export type AnalysisRange = "7d" | "14d" | "30d";
-export type CandidateStatus = "high_confidence" | "pending_verification";
+export type CandidateStatus = "high_confidence" | "pending_verification" | "low_relevance";
 export interface EffectInversionEvent { id: string; experimentId: string; range: AnalysisRange; metric: string; expectedDirection: "up" | "down"; actualEffect: number; pValue: number; consecutiveWindows: number; affectedTraffic: number; startedAt: string; detectedAt: string; trend: number[] }
 export interface CandidateVerification { experimentId: string; owner: string; score: number; status: CandidateStatus; sampleOverlap: number; rolloutAlignment: number; layerOverlap: number; metricSync: number; registeredRelation: number }
 export interface AttributionCase { id: string; experimentId: string; eventId: string; range: AnalysisRange; createdAt: string; updatedAt: string; status: "investigating" | "collaborating" | "resolved"; verifications: CandidateVerification[] }
-export interface CollaborationNotice { id: string; caseId: string; candidateExperimentId: string; targetExperimentId: string; recipient: string; createdAt: string; read: boolean; text: string }
+export interface CollaborationNotice { id: string; caseId: string; candidateExperimentId: string; targetExperimentId: string; recipient: string; createdAt: string; sourceUpdatedAt?: string; read: boolean; text: string }
 export const ANALYSIS_RANGES: readonly AnalysisRange[];
 export const EFFECT_INVERSION_EVENTS: readonly EffectInversionEvent[];
 export function findEffectInversionEvent(experimentId: string, range: AnalysisRange): EffectInversionEvent | null;

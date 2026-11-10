@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-11-10 - Collaboration Notification Follow-up (v0.6.12)
+
+Changed:
+
+- Re-sends a collaboration notice when a previously processed conflict produces a later qualifying signal, while keeping unresolved notices deduplicated.
+- Labels verification candidates below 60 as green low-relevance items and keeps them collapsed by default.
+- Shows the responsible owner and experiment ID for the other experiment in collaboration notices without exposing protected experiment details.
+
 ## 2026-10-30 - Anomaly Analysis and Dynamic Business Domains (v0.6.11)
 
 Changed:
