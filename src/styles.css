@@ -96,48 +96,82 @@ textarea:focus-visible,
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   height: 56px;
-  padding: 0 16px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--line);
 }
 
-.brand strong {
-  overflow: hidden;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 600;
+.brand-copy {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.brand-copy strong {
+  flex: 0 0 auto;
+  color: #123a78;
+  font-size: 16px;
+  font-weight: 700;
   line-height: 1.2;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .brand-logo {
   position: relative;
-  flex: 0 0 28px;
-  width: 28px;
-  height: 22px;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #25b64a;
+  box-shadow: inset 0 -2px 3px rgba(10, 110, 42, 0.2);
+}
+
+.brand-logo::before,
+.brand-logo::after {
+  position: absolute;
+  left: 8px;
+  top: 16px;
+  width: 18px;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.9);
+  content: "";
+  transform-origin: center;
+}
+
+.brand-logo::before {
+  transform: rotate(34deg);
+}
+
+.brand-logo::after {
+  transform: rotate(-34deg);
 }
 
 .brand-logo span {
   position: absolute;
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  transform: rotate(45deg);
+  z-index: 1;
+  width: 6px;
+  height: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  background: #fff;
 }
 
 .brand-logo span:first-child {
-  left: 0;
-  top: 2px;
-  background: var(--primary);
+  left: 14px;
+  top: 7px;
+}
+
+.brand-logo span:nth-child(2) {
+  left: 7px;
+  top: 21px;
 }
 
 .brand-logo span:last-child {
-  right: 0;
-  top: 2px;
-  background: var(--success);
-  opacity: 0.88;
+  right: 7px;
+  top: 21px;
 }
 
 .sidebar-nav {
@@ -4058,18 +4092,52 @@ textarea:focus {
 
 @media (max-width: 1440px) {
   .app-shell {
-    grid-template-columns: 188px minmax(0, 1fr);
+    grid-template-columns: 216px minmax(0, 1fr);
   }
 
   .sidebar {
-    width: 188px;
+    width: 216px;
   }
 
   .brand {
-    padding: 0 12px;
+    gap: 6px;
+    padding: 0 8px;
   }
 
-  .brand strong {
+  .brand-logo {
+    flex-basis: 30px;
+    width: 30px;
+    height: 30px;
+  }
+
+  .brand-logo::before,
+  .brand-logo::after {
+    left: 7px;
+    top: 14px;
+    width: 16px;
+  }
+
+  .brand-logo span {
+    width: 5px;
+    height: 5px;
+  }
+
+  .brand-logo span:first-child {
+    left: 13px;
+    top: 6px;
+  }
+
+  .brand-logo span:nth-child(2) {
+    left: 6px;
+    top: 19px;
+  }
+
+  .brand-logo span:last-child {
+    right: 6px;
+    top: 19px;
+  }
+
+  .brand-copy strong {
     font-size: 16px;
   }
 

@@ -2352,7 +2352,7 @@ function App() {
   }
 
   if (!activeAccount) {
-    return <main className="demo-login-shell"><section className="demo-login"><div><h1>实验资产中心</h1><p>选择测试账号以验证不同资源权限、权限申请和审批流程。</p></div><div className="demo-account-grid">{(demoState.accounts ?? []).filter((account: any) => account.status !== "disabled").map((account: any) => <button key={account.id} type="button" onClick={() => selectDemoAccount(account.id)}><strong>{account.name}</strong><span>{account.id}</span><em>{account.role === "admin" ? "管理员" : "使用者"}</em></button>)}</div></section></main>;
+    return <main className="demo-login-shell"><section className="demo-login"><div><h1>实策通实验管理平台</h1><p>选择测试账号以验证不同资源权限、权限申请和审批流程。</p></div><div className="demo-account-grid">{(demoState.accounts ?? []).filter((account: any) => account.status !== "disabled").map((account: any) => <button key={account.id} type="button" onClick={() => selectDemoAccount(account.id)}><strong>{account.name}</strong><span>{account.id}</span><em>{account.role === "admin" ? "管理员" : "使用者"}</em></button>)}</div></section></main>;
   }
 
   return (
@@ -2362,8 +2362,9 @@ function App() {
           <div className="brand-logo" aria-hidden="true">
             <span />
             <span />
+            <span />
           </div>
-          <strong>实验资产中心</strong>
+          <div className="brand-copy"><strong>实策通实验管理平台</strong></div>
         </div>
         <nav className="sidebar-nav" aria-label="主导航">
           {visibleGroups.map((group) => (

@@ -2,6 +2,14 @@
 
 This changelog records product and demo-design milestones that are useful for reproducing past decisions.
 
+## 2026-11-12 - V1.0.0 Launch
+
+Changed:
+
+- Released the initial V1 Demo with experiment registration, historical ledger import, metric governance, resource-level access requests, owner approvals, and audit trails.
+- Added anomaly investigation from editable experiment details, including inversion detection, drilldowns, privacy-safe cross-experiment verification, and collaboration notifications.
+- Applied the product identity "实策通实验管理平台" with a native node brand mark across the login screen, application shell, documentation, and static artifact.
+
 ## 2026-11-10 - Collaboration Notification Follow-up (v0.6.12)
 
 Changed:

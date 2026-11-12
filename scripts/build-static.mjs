@@ -65,7 +65,7 @@ export function createStaticHtml({ script, style, fingerprint }) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="experiment-static-fingerprint" content="${fingerprint}">
-  <title>实验资产中心</title>
+  <title>实策通实验管理平台</title>
   <style>${escapeInlineContent(style, "style")}</style>
 </head>
 <body>

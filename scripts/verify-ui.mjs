@@ -15,6 +15,7 @@ const all = (source, tokens) => tokens.every((token) => source.includes(token));
 const check = (name, passed) => checks.push([name, Boolean(passed)]);
 
 check("static artifact remains self-contained", /experiment-static-fingerprint/.test(dist) && !/<script[^>]+src=/i.test(dist));
+check("platform branding uses a single Shicetong name and native node mark without clipping", all(app, ['实策通实验管理平台', '<div className="brand-copy"><strong>实策通实验管理平台</strong></div>', '<div className="brand-logo" aria-hidden="true">']) && all(css, ['.brand-copy', 'align-items: baseline;', 'font-weight: 700;', 'flex: 0 0 auto;', 'grid-template-columns: 216px minmax(0, 1fr);', '.brand-logo::before', '.brand-logo span:nth-child(2)']) && all(read("scripts/build-static.mjs"), ['<title>实策通实验管理平台</title>']));
 check("navigation calls the dashboard experimental overview and removes monitor entry", all(app, ['label: "实验总览"', 'key: "home"', 'key: "list"']) && !app.includes('label: "监控排查"'));
 check("detail is the only visible case entry and remains editor-gated", all(app, ['function openEffectAnalysis', 'can("experiment.edit", experiment)', 'data-start-investigation={experiment.id}', '选择分析范围']) && !app.includes('key: "investigate", label:'));
 check("analysis workspace exposes the required four sections", all(app, ['异常排查', '异常概览', '分层下钻', '交叉验证', '证据与通知', 'effect-inversion-analysis']));
